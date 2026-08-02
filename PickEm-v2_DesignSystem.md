@@ -1,5 +1,9 @@
 # PickEm v2 — Design System & Mobile Standards
 
+> **Status: CLEARED** — parallel review (Design / ENG / QA / Product) completed Aug 2,
+> 2026. All 18 comment threads resolved and confirmed by their original authors; zero
+> items required Alex's escalation. Review record: [Notion page](https://app.notion.com/p/3b0d4b15d22f815c8dbaefe8d08a2d4f).
+
 > Standing reference, not a per-ticket checklist. Every epic and ticket inherits these
 > requirements by default — cite this doc once in Definition of Done, don't restate its
 > contents per ticket. Update this doc itself when a standard changes; don't fork copies
@@ -21,6 +25,10 @@ When testing in Chrome DevTools, enable the device toolbar and turn on **Show de
 frame → Include safe areas** to simulate notch and home-indicator insets. Skipping this
 hides an entire class of real-device layout bugs.
 
+**Orientation:** Portrait-only for beta. Landscape is not a supported orientation — epics
+must not design or test for landscape layout. Beta scope deferral; landscape support is a
+post-beta consideration.
+
 ## Navigation
 - Bottom-fixed tab bar, not top. Standard mobile/PWA convention — thumb-reachable,
   doesn't compete with page content for horizontal space.
@@ -29,9 +37,14 @@ hides an entire class of real-device layout bugs.
 - Nav item visibility can be role-gated (e.g. Commish Tools hidden for GM personas) but
   the bar itself never reflows/scrolls based on visible item count.
 - **Thumb reach**: this is a bottom-nav app — page-level primary actions (submit picks,
-  confirm settings) belong in the lower portion of the viewport, not top-aligned. The top
-  quarter of the screen is the hardest reach zone when a phone is held in one hand. Design
-  page layouts accordingly: leads at top, actions at bottom.
+  confirm settings) must be placed in a sticky bottom action bar or at/below the viewport
+  midpoint at 375px. The top quarter of the screen is the hardest reach zone when a phone
+  is held in one hand. Design page layouts accordingly: leads at top, actions at bottom.
+  An action placed above the midpoint does not satisfy this rule regardless of proximity
+  to the bottom.
+- **Gestures**: none for beta. No pull-to-refresh, swipe-between-tabs, or swipe-to-act
+  patterns are in scope. All interactions default to tap. Any gesture added to a specific
+  epic must be explicitly specified in that epic's PRD before implementation.
 
 ## Safe-area insets
 **Required on every build, not optional.** iPhones with a home indicator (iPhone X through
@@ -46,10 +59,17 @@ Two things must both be true:
    use a bottom offset that accounts for nav height *plus* safe-area inset — not a
    hardcoded pixel value.
 
-Any floating element positioned above the nav (e.g. dev tools FAB) must derive its bottom
-offset from the nav's total rendered height, not a hardcoded pixel value. A hardcoded
-offset that works at 375px today will clip the FAB on a notched phone once safe-area
-insets are correctly applied.
+**Implementation pattern (already shipped):** A `--nav-height` CSS custom property is
+defined in `app/globals.css` and set dynamically by the layout. Page-level components
+consume it via inline style: `style={{ paddingBottom: 'calc(var(--nav-height) + env(safe-area-inset-bottom))' }}`.
+This is the required pattern — do not use Tailwind arbitrary values (`pb-[env(...)]`), raw
+CSS in component files, or a `@utility` definition. All epics must use this single
+pattern.
+
+Any element positioned above the nav (e.g. dev tools trigger) must derive its bottom
+offset from `var(--nav-height)`, not a hardcoded pixel value. A hardcoded offset that
+works at 375px today will clip on a notched phone once safe-area insets are correctly
+applied.
 
 ## Touch targets
 Minimum 44×44pt (Apple HIG) / 48×48dp (Material) for anything tappable — buttons, nav
@@ -59,17 +79,59 @@ the layout instead.
 ## Form inputs & keyboard
 Input font size must be at least **16px**. iOS Safari auto-zooms the viewport when a
 focused input has a smaller font size — this is a disruptive, uncorrectable layout shift
-on a PWA. Set the size via token or global input style, not as a per-form override that
-gets forgotten. This applies to any text input, search field, or score entry field in
-commissioner tools.
+on a PWA. **Pre-epic-zero fix complete:** `components/ui/input.tsx` and
+`components/ui/textarea.tsx` have had their `md:text-sm` downshift removed; `text-base`
+(16px) now applies at every breakpoint. This is not a per-epic responsibility — the fix is
+already in the base component. This applies to any text input, search field, or score
+entry field in commissioner tools.
+
+**System text scaling:** The app must respect iOS Dynamic Type and Android font scale. Do
+not suppress or cap scaling via viewport meta or CSS (`-webkit-text-size-adjust: none`,
+fixed `font-size` overrides). At 200%+ scale, bottom nav labels may wrap or overflow —
+this is a known post-beta polish item, not a beta blocker. Epics must not introduce
+fixed-height containers that clip text at large scale.
 
 ## Components
 - Use `components/ui/*` (shadcn "new-york" style, ported from v1) — don't hand-roll a
   one-off styled element when an existing component covers it.
-- Dark theme only, tokens defined in `app/globals.css`. No light-mode variant planned for
-  beta.
+- Dark theme only for beta (scope deferral, not a permanent architecture decision). Token
+  names in `app/globals.css` are semantic — they reflect role, not literal color values —
+  so future theming or light-mode support does not require touching individual
+  components.
 - Fonts: Archivo Black (display/headings), Inter (body), JetBrains Mono (numeric/mono
   contexts) — already wired via `next/font/google` in `app/layout.tsx`.
+
+**Semantic token reference** (all defined in `app/globals.css`). Use the token that
+matches the semantic role — don't substitute a visually similar token because it "looks
+right" in dark mode:
+
+| Token | Intended role |
+|---|---|
+| `--background` | Page / app background |
+| `--foreground` | Default body text |
+| `--card` | Card / panel background |
+| `--card-foreground` | Text on cards |
+| `--popover` | Popover / dropdown background |
+| `--popover-foreground` | Text in popovers |
+| `--primary` | Primary interactive color (buttons, active states) |
+| `--primary-foreground` | Text on primary-colored elements |
+| `--secondary` | Secondary interactive color |
+| `--secondary-foreground` | Text on secondary-colored elements |
+| `--muted` | De-emphasized / secondary surface |
+| `--muted-foreground` | Secondary / de-emphasized text |
+| `--accent` | Accent highlight, hover states |
+| `--accent-foreground` | Text on accent-colored elements |
+| `--destructive` | Destructive actions, errors, danger states |
+| `--destructive-foreground` | Text on destructive-colored elements |
+| `--success` | Success states, confirmed picks |
+| `--success-foreground` | Text on success-colored elements |
+| `--warning` | Warning states, deadline proximity |
+| `--warning-foreground` | Text on warning-colored elements |
+| `--border` | Default border color |
+| `--input` | Input field border / background |
+| `--ring` | Focus ring |
+| `--surface` | Base raised surface (slightly above background) |
+| `--surface-elevated` | Further elevated panel (modals, sheets, tooltips) |
 
 ## Overflow & truncation
 - No horizontal scroll on core layout chrome (nav, headers, page titles). If content
@@ -90,22 +152,91 @@ text is not QA-ready.
 
 ## Dev-only tooling
 Dev/QA tooling (persona switcher, time-travel clock) must not compete with real product
-UI for permanent screen space, especially the bottom nav bar. Collapse dev tools into a
-floating trigger (FAB) that expands on demand, not a persistent full-width bar.
+UI for permanent screen space, especially the bottom nav bar. The specific UX pattern
+(collapsible trigger, shake-to-reveal, corner overlay, etc.) is a feature-level design
+decision to be specified in the epic PRD that owns dev tooling — not prescribed here. The
+standing constraint is the principle: no dev tool occupies permanent visible screen space
+in the product UI.
+
+**E6 and dev tooling:** E6 scenarios must be achievable via real role-provisioned test
+accounts and real server-side state. Dev tooling (persona switcher, clock override) may be
+used to *replicate* a scenario after the real-account path is verified, but may not serve
+as the primary test precondition. An E6 scenario that can only be triggered via the
+persona switcher — not via an actual test account with the corresponding role — is not a
+valid E6 scenario.
 
 ## Enforcement
-- Every UI/UX ticket's Definition of Done includes: "Verified at 375px, no horizontal
-  scroll, safe-area insets applied, nav unaffected." Tickets link here — they don't
-  re-describe the rules.
+- **Jira DoD citation convention**: every UI/UX story's Definition of Done must include a
+  checklist item: **"Design standards verified — see [PickEm v2 Design System & Mobile
+  Standards](https://app.notion.com/p/3b0d4b15d22f815c8dbaefe8d08a2d4f)."** This is a
+  per-ticket requirement — not a one-time epic-level comment. Tickets link here; they
+  don't re-describe the rules.
+- **DoD checklist item passes when:** (a) no product UI element renders within the
+  `safe-area-inset-bottom` region — verify in Chrome DevTools with "Include safe areas"
+  enabled or on a real notched device; (b) nav item count changes (including role-gated
+  item removal) do not cause nav reflow or horizontal scroll; (c) the nav bottom edge
+  stays above the home-indicator region.
+- **R1 (PRD review)**: the design-reviewer checks each epic PRD for whether the design
+  scope names which empty, loading, and error states need treatment for each
+  data-fetching view. A PRD that introduces data-fetching views without naming its state
+  treatments is incomplete at R1 — this check runs before tickets are written, not at E4.
 - **E4 (code review)**: the code-reviewer agent is the first automated backstop. Any
-  UI/UX ticket touching layout chrome, nav, or inputs should be checked against this doc
-  at E4. Hard violations (missing safe-area, touch targets below minimums, input font
-  below 16px) should block the review.
+  UI/UX ticket linking this doc in its DoD makes this doc a required review input at E4.
+  Hard violations (missing safe-area insets, touch targets below minimums, input font
+  below 16px) block the review. **Residual, not yet closed:** whether code-reviewer's
+  actual invocation is configured to read this doc via the ticket link needs verifying
+  when Epic 1 first reaches E4 — this doc names the requirement, it can't guarantee the
+  agent config honors it.
 - **E6 (epic E2E)**: the qa-reviewer authors the E6 scenario at planning time. For any
-  epic that touches nav or page layout, the E6 scenario must include a 375px viewport
-  step. The qa-reviewer should reference this doc when writing those scenarios.
+  epic that touches nav or page layout, the E6 scenario must include: (a) a 375px
+  viewport step; (b) touch target assertions for primary interactive elements (min
+  44×44pt, verified in DevTools or on device); (c) a thumb-reach assertion — primary
+  submit/confirm actions visible below the viewport midpoint at 375px without scrolling;
+  (d) an explicit enumeration for each data-fetching view of which states (loading /
+  empty / error) are in scope and how each is triggered in test. An E6 scenario that does
+  not address state coverage — even if the answer is "out of scope for this epic's
+  views" — is incomplete.
 - **E7 (Alex's QA moment)**: Alex's assembled-epic spot-check is the human backstop for
   UX judgment — feel, copy, and real-world scenarios the spec didn't anticipate.
 - **Acknowledged gap**: the `design-reviewer` agent (R1) reviews PRDs for designability,
   not rendered UI. There is currently no agent that reviews built screens against these
   standards. E4 and E6 are the practical mitigations until that's extended.
+
+## PWA installed state
+For beta, installed-to-home-screen design treatments (splash screen, status bar color
+when installed, offline / no-connection UI) are out of scope as designed deliverables.
+Beta audience is 5–10 trusted players, not a public launch. Minimum required: set a
+`theme-color` meta tag matching the app background; wire a standard install prompt.
+Bespoke splash design and offline UI are post-beta items. If any epic's scope requires a
+meaningful offline state (e.g. a cached picks view), the epic PRD must flag it and scope a
+lightweight treatment within that epic.
+
+## ENG standing constraints
+These apply across all 8 epics and are not per-epic choices to be relitigated
+independently.
+
+**Image optimization:** All images must use `next/image`. No bare `<img>` tags on any
+production page. WebP/AVIF output and lazy loading are handled automatically.
+
+**Font loading:** Archivo Black (the display font) must be preloaded — configure
+`preload: true` in its `next/font/google` call. Inter and JetBrains Mono do not require
+explicit preload. All three fonts must use `display: 'swap'` to prevent invisible text
+during load. Subset configuration is not required for beta; evaluate post-beta if mobile
+LCP warrants it.
+
+**Performance budget:** No hard LCP/INP/CLS targets for beta. Post-beta follow-up
+required: establish a mobile performance budget before public launch. During beta: flag
+any PR adding >50kB gzipped to the initial JS bundle as a team discussion item (not a
+hard block).
+
+**PWA / offline caching:** No offline-first caching or custom service worker strategy
+required for beta. Standard install prompt is sufficient. Post-beta follow-up: define
+shell-level cache behavior before public launch.
+
+## Change log
+*Mid-build changes to this doc require a Product or Design comment on any affected open
+Jira tickets noting the update.*
+
+| Date | Change | Epics in flight |
+|---|---|---|
+| Aug 2, 2026 | Initial doc created; parallel review (Design / ENG / QA / Product) completed | Pre-epic zero |
