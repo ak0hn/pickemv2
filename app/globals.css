@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Tailwind's default content scan reads every non-ignored file in the repo, including
+   markdown. PickEm-v2_DesignSystem.md documents pb-[env(...)] as an anti-pattern example
+   (literal text, never actual UI code) — without this exclusion Tailwind treats that
+   string as a real arbitrary-value class and generates invalid CSS from it, breaking the
+   build. Exclude root-level markdown from source scanning rather than editing the doc's
+   wording, since any future doc could reintroduce the same class of failure. */
+@source not "../*.md";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
