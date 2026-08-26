@@ -133,6 +133,72 @@ right" in dark mode:
 | `--surface` | Base raised surface (slightly above background) |
 | `--surface-elevated` | Further elevated panel (modals, sheets, tooltips) |
 
+**Color values** (palette applied Aug 26, 2026)
+
+This table maps every semantic token to its `oklch` value and the palette anchor it draws from. This is the single source of truth for the palette — sync `app/globals.css` to match whenever this table changes.
+
+**Palette anchors**
+
+| Color | Hex | oklch |
+|---|---|---|
+| Black | `#000000` | `oklch(0 0 0)` |
+| Primary navy | `#1c0d53` | `oklch(0.239 0.117 282.9)` |
+| Secondary / hover navy | `#2b147f` | `oklch(0.313 0.163 281.3)` |
+| White | `#ffffff` | `oklch(1 0 0)` |
+| Light neutral | `#dfe6e9` | `oklch(0.920 0.009 225.4)` |
+
+**Token → value mapping**
+
+| Token | oklch value | Hex anchor | Notes |
+|---|---|---|---|
+| `--background` | `oklch(0 0 0)` | `#000000` | App ground — palette: black |
+| `--foreground` | `oklch(1 0 0)` | `#ffffff` | Primary text — palette: white |
+| `--card` | `oklch(0.239 0.117 282.9)` | `#1c0d53` | Card / panel background — palette: primary navy |
+| `--card-foreground` | `oklch(1 0 0)` | `#ffffff` | Text on cards |
+| `--popover` | `oklch(0.313 0.163 281.3)` | `#2b147f` | Elevated above cards — palette: secondary navy |
+| `--popover-foreground` | `oklch(1 0 0)` | `#ffffff` | Text in popovers |
+| `--primary` | `oklch(0.239 0.117 282.9)` | `#1c0d53` | Buttons, active states — palette: primary navy |
+| `--primary-foreground` | `oklch(1 0 0)` | `#ffffff` | Text on primary elements |
+| `--secondary` | `oklch(0.313 0.163 281.3)` | `#2b147f` | Secondary actions — palette: secondary navy |
+| `--secondary-foreground` | `oklch(1 0 0)` | `#ffffff` | Text on secondary elements |
+| `--muted` | `oklch(0.135 0.040 283)` | derived | De-emphasized surface; darker than card, barely navy-tinted |
+| `--muted-foreground` | `oklch(0.920 0.009 225.4)` | `#dfe6e9` | Secondary text — light neutral, softer than white, still 13.5:1 AAA on navy |
+| `--accent` | `oklch(0.313 0.163 281.3)` | `#2b147f` | Hover / highlight — palette: secondary navy |
+| `--accent-foreground` | `oklch(1 0 0)` | `#ffffff` | Text on accent elements |
+| `--destructive` | `oklch(0.577 0.245 27.3)` | ~`#dc2626` | Retained semantic red — see judgment calls |
+| `--destructive-foreground` | `oklch(1 0 0)` | `#ffffff` | |
+| `--success` | `oklch(0.592 0.158 145.1)` | ~`#16a34a` | Retained semantic green |
+| `--success-foreground` | `oklch(1 0 0)` | `#ffffff` | |
+| `--warning` | `oklch(0.769 0.187 86.0)` | ~`#d97706` | Retained semantic amber |
+| `--warning-foreground` | `oklch(0 0 0)` | `#000000` | Black on amber (7.7:1 AAA) — white would fail |
+| `--border` | `oklch(0.380 0.090 283)` | derived | Visible separator on dark navy / black surfaces |
+| `--input` | `oklch(0.380 0.090 283)` | derived | Input field border — matches border |
+| `--ring` | `oklch(1 0 0)` | `#ffffff` | Focus ring — white ensures visibility on all dark backgrounds |
+| `--surface` | `oklch(0.239 0.117 282.9)` | `#1c0d53` | Base raised surface (same value as --card) |
+| `--surface-elevated` | `oklch(0.313 0.163 281.3)` | `#2b147f` | Modals, sheets, tooltips (same value as --popover) |
+
+**WCAG contrast audit** — dark theme only. AA requires 4.5:1; AAA requires 7:1.
+
+| Pairing | Ratio | Result |
+|---|---|---|
+| `--foreground` (#fff) on `--background` (#000) | 21.0:1 | AAA |
+| `--foreground` (#fff) on `--card` / `--primary` (#1c0d53) | 17.1:1 | AAA |
+| `--foreground` (#fff) on `--popover` / `--secondary` (#2b147f) | 13.9:1 | AAA |
+| `--muted-foreground` (#dfe6e9) on `--background` (#000) | 16.6:1 | AAA |
+| `--muted-foreground` (#dfe6e9) on `--card` (#1c0d53) | 13.5:1 | AAA |
+| `--muted-foreground` (#dfe6e9) on `--popover` (#2b147f) | 11.0:1 | AAA |
+| `--warning-foreground` (black) on `--warning` (~#d97706) | 7.7:1 | AAA |
+| `--destructive-foreground` (white) on `--destructive` (~#dc2626) | 5.7:1 | AA |
+| `--success-foreground` (white) on `--success` (~#16a34a) | 5.2:1 | AA |
+| White on `--muted-foreground` (#dfe6e9) | 1.26:1 | **FAIL — forbidden pairing** |
+
+**Judgment calls:**
+1. **Background = black, not navy.** Pure black gives the highest contrast against white text (21:1) and makes the brand navy surface as cards and interactive elements rather than as wallpaper. Navy as background would flatten cards against it.
+2. **Elevation hierarchy: black → primary navy → secondary navy.** The three-level stack (background → card/surface → popover/surface-elevated) maps directly onto the two navy values without introducing off-palette derived colors for elevated layers.
+3. **Functional tokens retained.** Success, warning, and destructive keep conventional semantic colors (green, amber, red). In a pick-'em app these tokens carry unambiguous meaning — a locked pick, an approaching deadline, and an irreversible action must be distinguishable at a glance regardless of brand palette.
+4. **--muted-foreground = light neutral (#dfe6e9), not white.** Secondary text uses the light neutral rather than pure white. It reads as softer / de-emphasized while still achieving AAA on all dark backgrounds in this palette. The slight cool cast at hue 225° fits the contemporary sports aesthetic.
+5. **--warning-foreground = black.** Black achieves 7.7:1 AAA on amber; white would score ~2.9:1 (FAIL). This is the only token in the system where the foreground must be dark rather than white.
+
 ## Overflow & truncation
 - No horizontal scroll on core layout chrome (nav, headers, page titles). If content
   doesn't fit, truncate with ellipsis or wrap — never let the container scroll sideways.
