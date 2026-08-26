@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { MOCK_GMS } from "@/lib/mock/data";
 import { MockGM } from "@/lib/mock/types";
+import { devSignInAs } from "@/lib/dev/dev-auth-actions";
 
 interface DevContextValue {
   now: Date;
@@ -59,6 +60,15 @@ export function DevProvider({ children }: { children: ReactNode }) {
   };
 
   const persona = MOCK_GMS.find((g) => g.id === personaId) ?? MOCK_GMS[0];
+
+  useEffect(() => {
+    // Bridges the mock persona switcher to a real Supabase Auth session (dev-only test
+    // accounts) so RLS/role checks stay live for any component reading real data.
+    devSignInAs(persona.role).catch((err) => {
+      console.error("Dev sign-in failed:", err);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persona.role]);
 
   return (
     <DevContext.Provider

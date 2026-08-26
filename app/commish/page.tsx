@@ -2,20 +2,18 @@
 
 import { useState } from "react";
 import { useDev } from "@/lib/dev/DevProvider";
-import { getWeekGames, getWeekPhase } from "@/lib/mock/data";
+import { getWeekPhase } from "@/lib/mock/data";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { SlateBuilder } from "@/components/commish/SlateBuilder";
 
 export default function CommishPage() {
   const { now, persona, tiebreakerInvoked, setTiebreakerInvoked } = useDev();
   const [weekOffset] = useState(0);
-  const games = getWeekGames(weekOffset);
   const phase = getWeekPhase(weekOffset, now, tiebreakerInvoked);
-  const weekNumber = 13 + weekOffset;
 
   if (persona.role !== "commissioner") {
     return (
@@ -34,25 +32,7 @@ export default function CommishPage() {
     <div className="flex flex-col gap-4">
       <h1 className="font-display text-lg text-foreground">Commish Tools</h1>
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <p className="text-sm font-medium">Week {weekNumber} lines</p>
-          <Badge variant="outline">{games.length} games</Badge>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {games.map((g) => (
-            <div key={g.id} className="flex items-center justify-between text-sm">
-              <span>
-                {g.away} @ {g.home}
-              </span>
-              <span className="text-muted-foreground">{g.spread}</span>
-            </div>
-          ))}
-          <Button size="sm" variant="secondary" className="mt-2 self-start">
-            Edit lines
-          </Button>
-        </CardContent>
-      </Card>
+      <SlateBuilder />
 
       <Card>
         <CardHeader>

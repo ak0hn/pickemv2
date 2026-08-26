@@ -33,6 +33,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Supabase CLI personal access token, generated DB password, and dev test-account
+# password — never commit
+.supabase_token
+.supabase_db_password
+.dev_test_password
+
 # vercel
 .vercel
 
