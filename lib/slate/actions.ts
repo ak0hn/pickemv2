@@ -20,6 +20,10 @@ export async function addGame(input: {
   kickoffAt: string;
   spread: number | null;
 }) {
+  if (Number.isNaN(Date.parse(input.kickoffAt))) {
+    throw new Error("Kickoff time is invalid.");
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.from("games").insert({
     week_id: input.weekId,
@@ -36,64 +40,55 @@ export async function addGame(input: {
 // CT2's pre-confirm check: does this game have picks that would be voided by an edit?
 export async function checkSpreadEditImpact(gameId: string) {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from("picks")
     .select("roster_id", { count: "exact" })
     .eq("game_id", gameId)
     .eq("pick_status", "submitted");
 
   if (error) throw new Error(`Couldn't check existing picks: ${error.message}`);
-  return { hasExistingPicks: (data?.length ?? 0) > 0, affectedCount: data?.length ?? 0 };
+  // Prefer the exact `count` (unaffected by max_rows) over data.length.
+  const affectedCount = count ?? data?.length ?? 0;
+  return { hasExistingPicks: affectedCount > 0, affectedCount };
 }
 
-// CT2 / CT2b: edit a spread. If picks already exist for the game, void them and notify
-// the affected GMs in the same action — the commish has already seen and confirmed the
-// warning in the UI by the time this runs.
+// CT2 / CT2b: edit a spread. Voiding existing picks and notifying affected GMs happens
+// atomically with the spread update via a single Postgres function — see
+// apply_spread_edit in the migrations. A partial failure (e.g. spread updates but the
+// void/notify doesn't) would leave GMs with a stale pick and no idea it needs
+// resubmitting, so this cannot be four independent client-side writes.
 export async function applySpreadEdit(gameId: string, newSpread: number) {
   const supabase = await createClient();
+  const { error } = await supabase.rpc("apply_spread_edit", {
+    p_game_id: gameId,
+    p_new_spread: newSpread,
+  });
 
-  const { data: existingPicks, error: picksErr } = await supabase
-    .from("picks")
-    .select("id, roster_id")
-    .eq("game_id", gameId)
-    .eq("pick_status", "submitted");
-
-  if (picksErr) throw new Error(`Couldn't load existing picks: ${picksErr.message}`);
-
-  const { error: spreadErr } = await supabase
-    .from("games")
-    .update({ spread: newSpread, updated_at: new Date().toISOString() })
-    .eq("id", gameId);
-
-  if (spreadErr) {
-    // The DB trigger blocks edits on already-scored games — surface that plainly.
-    throw new Error(`Couldn't update spread: ${spreadErr.message}`);
-  }
-
-  if (existingPicks && existingPicks.length > 0) {
-    const pickIds = existingPicks.map((p) => p.id);
-    const { error: voidErr } = await supabase
-      .from("picks")
-      .update({ pick_status: "voided", updated_at: new Date().toISOString() })
-      .in("id", pickIds);
-
-    if (voidErr) throw new Error(`Couldn't void affected picks: ${voidErr.message}`);
-
-    const notifications = existingPicks.map((p) => ({
-      roster_id: p.roster_id,
-      message: "Your pick for this game was cleared because the spread changed — resubmit before kickoff.",
-    }));
-    const { error: notifyErr } = await supabase.from("notifications").insert(notifications);
-    if (notifyErr) throw new Error(`Couldn't notify affected GMs: ${notifyErr.message}`);
+  if (error) {
+    // The DB trigger blocks edits on already-scored games — surfaces here too, since
+    // the trigger fires inside the same transaction as the RPC.
+    throw new Error(`Couldn't update spread: ${error.message}`);
   }
 
   revalidatePath("/commish");
 }
 
 // CT4: publish the draft slate. Requires at least one game — publishing an empty week
-// has no meaningful effect for GMs.
+// has no meaningful effect for GMs. Also guards against publishing a week that isn't
+// actually in draft (e.g. already closed per CT18) — `closed` is meant to be terminal.
 export async function publishWeek(weekId: string) {
   const supabase = await createClient();
+
+  const { data: week, error: weekErr } = await supabase
+    .from("weeks")
+    .select("state")
+    .eq("id", weekId)
+    .single();
+
+  if (weekErr || !week) throw new Error("Couldn't load the week.");
+  if (week.state !== "draft") {
+    throw new Error(`Can't publish a week that's already ${week.state}.`);
+  }
 
   const { count, error: countErr } = await supabase
     .from("games")

@@ -37,7 +37,9 @@ for (const u of testUsers) {
 
   if (createErr) {
     if (createErr.message.includes("already been registered")) {
-      const { data: list } = await admin.auth.admin.listUsers();
+      // Default page size is 100 — explicit perPage avoids silently missing the user
+      // on a project that already has more than 100 auth users.
+      const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
       authUserId = list.users.find((x) => x.email === u.email)?.id;
     } else {
       console.error(`Failed to create ${u.email}:`, createErr.message);

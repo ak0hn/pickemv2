@@ -43,6 +43,9 @@ export function SlateBuilder() {
   const [editSpreadValue, setEditSpreadValue] = useState("");
   const [editWarning, setEditWarning] = useState<{ affectedCount: number } | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [checkingEdit, setCheckingEdit] = useState(false);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -65,41 +68,71 @@ export function SlateBuilder() {
 
   async function handleAddGame(formData: FormData) {
     if (!data) return;
-    await addGame({
-      weekId: data.week.id,
-      awayTeam: String(formData.get("away")),
-      homeTeam: String(formData.get("home")),
-      kickoffAt: new Date(String(formData.get("kickoff"))).toISOString(),
-      spread: formData.get("spread") ? Number(formData.get("spread")) : null,
-    });
-    setAddOpen(false);
-    await load();
+    setErrorMessage(null);
+    setSaving(true);
+    try {
+      const kickoffRaw = String(formData.get("kickoff"));
+      const kickoffDate = new Date(kickoffRaw);
+      if (Number.isNaN(kickoffDate.getTime())) {
+        throw new Error("Kickoff time is invalid.");
+      }
+      await addGame({
+        weekId: data.week.id,
+        awayTeam: String(formData.get("away")),
+        homeTeam: String(formData.get("home")),
+        kickoffAt: kickoffDate.toISOString(),
+        spread: formData.get("spread") ? Number(formData.get("spread")) : null,
+      });
+      setAddOpen(false);
+      await load();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't add the game.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function startEditSpread(game: SlateGame) {
-    const impact = await checkSpreadEditImpact(game.id);
-    setEditGame(game);
-    setEditSpreadValue(String(game.spread ?? ""));
-    setEditWarning(impact.hasExistingPicks ? { affectedCount: impact.affectedCount } : null);
+    if (checkingEdit) return; // guards against a double-click firing two concurrent checks
+    setErrorMessage(null);
+    setCheckingEdit(true);
+    try {
+      const impact = await checkSpreadEditImpact(game.id);
+      setEditGame(game);
+      setEditSpreadValue(String(game.spread ?? ""));
+      setEditWarning(impact.hasExistingPicks ? { affectedCount: impact.affectedCount } : null);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't check this game's picks.");
+    } finally {
+      setCheckingEdit(false);
+    }
   }
 
   async function confirmEditSpread() {
     if (!editGame) return;
-    await applySpreadEdit(editGame.id, Number(editSpreadValue));
-    setEditGame(null);
-    setEditWarning(null);
-    await load();
+    setSaving(true);
+    try {
+      await applySpreadEdit(editGame.id, Number(editSpreadValue));
+      setEditGame(null);
+      setEditWarning(null);
+      await load();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't save the spread.");
+      setEditWarning(null);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handlePublish() {
     if (!data) return;
+    setErrorMessage(null);
     setPublishing(true);
     try {
       await publishWeek(data.week.id);
       await load();
     } catch (err) {
-      // Surfaced inline rather than a toast — matches CT4's "no silent failure" intent.
-      console.error(err);
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't publish the week.");
     } finally {
       setPublishing(false);
     }
@@ -151,54 +184,54 @@ export function SlateBuilder() {
           </Badge>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {state === "empty" ? (
-            <div className="flex flex-col items-start gap-2 py-4">
-              <p className="text-sm text-muted-foreground">
-                Week {data.week.week_number} slate is empty. Add this week&apos;s matchups to get
-                started.
-              </p>
-              <Button size="sm" onClick={() => setAddOpen(true)}>
-                Add Game
-              </Button>
-            </div>
-          ) : (
-            <>
-              {data.games.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  disabled={g.status === "final"}
-                  onClick={() => startEditSpread(g)}
-                  className="flex min-h-12 items-center justify-between text-left text-sm disabled:opacity-60"
-                >
-                  <span>
-                    {g.away_team} @ {g.home_team}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {g.spread === null ? "—" : g.spread}
-                  </span>
-                </button>
-              ))}
-              <div className="mt-2 flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
-                  Add Game
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled
-                  title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
-                >
-                  Pull from Odds API
-                </Button>
-              </div>
-            </>
+          {state === "empty" && (
+            <p className="text-sm text-muted-foreground">
+              Week {data.week.week_number} slate is empty. Add this week&apos;s matchups to get
+              started.
+            </p>
           )}
 
+          {state === "loaded" &&
+            data.games.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                disabled={g.status === "final" || checkingEdit}
+                onClick={() => startEditSpread(g)}
+                className="flex min-h-12 items-center justify-between text-left text-sm disabled:opacity-60"
+              >
+                <span>
+                  {g.away_team} @ {g.home_team}
+                </span>
+                <span className="text-muted-foreground">{g.spread === null ? "—" : g.spread}</span>
+              </button>
+            ))}
+
+          {/* CT1: always visible, disabled — a clear future integration point, not hidden. */}
+          <div className="mt-2 flex items-center gap-2">
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              Add Game
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
+            >
+              Pull from Odds API
+            </Button>
+          </div>
+
           {data.week.state === "draft" && state === "loaded" && (
-            <Button size="sm" className="mt-2 self-start" onClick={handlePublish} disabled={publishing}>
+            <Button size="sm" className="self-start" onClick={handlePublish} disabled={publishing}>
               {publishing ? "Publishing…" : "Publish week"}
             </Button>
+          )}
+
+          {errorMessage && (
+            <p className="text-sm text-destructive-foreground" role="alert">
+              {errorMessage}
+            </p>
           )}
         </CardContent>
       </Card>
@@ -231,13 +264,18 @@ export function SlateBuilder() {
               <Input id="spread" name="spread" type="number" step="0.5" placeholder="-6.5" />
             </div>
             <SheetFooter>
-              <Button type="submit">Add game</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Adding…" : "Add game"}
+              </Button>
             </SheetFooter>
           </form>
         </SheetContent>
       </Sheet>
 
-      <Sheet open={editGame !== null && !editWarning} onOpenChange={(open) => !open && setEditGame(null)}>
+      <Sheet
+        open={editGame !== null && !editWarning && !saving}
+        onOpenChange={(open) => !open && setEditGame(null)}
+      >
         <SheetContent side="bottom">
           <SheetHeader>
             <SheetTitle>
@@ -256,7 +294,9 @@ export function SlateBuilder() {
               />
             </div>
             <SheetFooter>
-              <Button onClick={confirmEditSpread}>Save spread</Button>
+              <Button onClick={confirmEditSpread} disabled={saving}>
+                {saving ? "Saving…" : "Save spread"}
+              </Button>
             </SheetFooter>
           </div>
         </SheetContent>
@@ -275,12 +315,13 @@ export function SlateBuilder() {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setEditGame(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={saving}
               onClick={async () => {
                 setEditWarning(null);
                 await confirmEditSpread();
               }}
             >
-              Confirm — clear picks &amp; save
+              {saving ? "Saving…" : "Confirm — clear picks & save"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
