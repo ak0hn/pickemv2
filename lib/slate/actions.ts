@@ -57,7 +57,7 @@ export async function checkSpreadEditImpact(gameId: string) {
 // apply_spread_edit in the migrations. A partial failure (e.g. spread updates but the
 // void/notify doesn't) would leave GMs with a stale pick and no idea it needs
 // resubmitting, so this cannot be four independent client-side writes.
-export async function applySpreadEdit(gameId: string, newSpread: number) {
+export async function applySpreadEdit(gameId: string, newSpread: number | null) {
   const supabase = await createClient();
   const { error } = await supabase.rpc("apply_spread_edit", {
     p_game_id: gameId,

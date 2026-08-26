@@ -71,6 +71,17 @@ describe("applySpreadEdit (CT2 / CT2b)", () => {
     expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
+  it("Given a null spread (the commissioner cleared the field), When applySpreadEdit runs, Then null is passed through rather than coerced to 0", async () => {
+    mockRpc.mockResolvedValue({ data: [{ affected_count: 0 }], error: null });
+
+    await applySpreadEdit("game-1", null);
+
+    expect(mockRpc).toHaveBeenCalledWith("apply_spread_edit", {
+      p_game_id: "game-1",
+      p_new_spread: null,
+    });
+  });
+
   it("Given the RPC fails (e.g. the DB trigger blocks a scored game), When applySpreadEdit runs, Then it throws instead of silently succeeding", async () => {
     mockRpc.mockResolvedValue({
       data: null,

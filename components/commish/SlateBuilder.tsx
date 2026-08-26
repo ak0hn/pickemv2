@@ -112,12 +112,15 @@ export function SlateBuilder() {
     if (!editGame) return;
     setSaving(true);
     try {
-      await applySpreadEdit(editGame.id, Number(editSpreadValue));
+      // An emptied field means "no spread set" — must go through as null, not Number("") === 0.
+      const newSpread = editSpreadValue.trim() === "" ? null : Number(editSpreadValue);
+      await applySpreadEdit(editGame.id, newSpread);
       setEditGame(null);
       setEditWarning(null);
       await load();
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Couldn't save the spread.");
+      setEditGame(null);
       setEditWarning(null);
     } finally {
       setSaving(false);
@@ -236,7 +239,13 @@ export function SlateBuilder() {
         </CardContent>
       </Card>
 
-      <Sheet open={addOpen} onOpenChange={setAddOpen}>
+      <Sheet
+        open={addOpen}
+        onOpenChange={(open) => {
+          setAddOpen(open);
+          if (!open) setErrorMessage(null);
+        }}
+      >
         <SheetContent side="bottom">
           <SheetHeader>
             <SheetTitle>Add game</SheetTitle>
