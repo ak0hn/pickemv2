@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -10,20 +11,30 @@ import { cn } from "@/lib/utils";
 import { uploadPostImage } from "@/lib/posts/actions";
 import type { PostBlockData, PostTrigger, BlockGameRow } from "@/lib/posts/types";
 
-const TRIGGER_PLACEHOLDER: Record<PostTrigger, string> = {
-  open_week: "Add a message to this week's slate…",
-  close_week: "Add a message to close out Week [N]…",
-  open_tiebreaker: "Add a message to open the tiebreaker…",
-  freeform: "Write a post…",
-};
+// close_week's placeholder needs the real week number, which only the block (not the
+// trigger alone) carries — so this is a function keyed on both, not a static lookup.
+function getPlaceholder(trigger: PostTrigger, block: PostBlockData | null): string {
+  switch (trigger) {
+    case "open_week":
+      return "Add a message to this week's slate…";
+    case "close_week":
+      return `Add a message to close out Week ${block?.type === "close_week" ? block.weekNumber : "[N]"}…`;
+    case "open_tiebreaker":
+      return "Add a message to open the tiebreaker…";
+    case "freeform":
+      return "Write a post…";
+  }
+}
 
 // Design System's own two examples ("Home -6.5" or "Away +6.5") don't fully pin down a
 // rule for every case — this codebase stores `spread` as the home team's line (negative
 // = home favored), and SlateBuilder already displays it that way (home abbr + signed
 // value), so the composer's block mirrors that same convention for consistency rather
-// than inventing a second display rule.
+// than inventing a second display rule. A spread of exactly 0 is a pick'em — shown as
+// "PK" per sports convention rather than a bare, sign-less "0".
 function formatSpreadLine(row: BlockGameRow): string {
   if (row.spread === null) return `${row.away} @ ${row.home}`;
+  if (row.spread === 0) return `${row.away} @ ${row.home} — PK`;
   const sign = row.spread > 0 ? "+" : "";
   return `${row.away} @ ${row.home} — ${row.home} ${sign}${row.spread}`;
 }
@@ -71,7 +82,9 @@ function BlockContent({ block }: { block: PostBlockData }) {
               </span>
             </div>
           ))}
-          <p className="mt-1 text-xs text-muted-foreground underline">(see full)</p>
+          <Link href="/league" className="mt-1 inline-block text-xs text-muted-foreground underline">
+            (see full)
+          </Link>
         </div>
       </div>
     );
@@ -170,7 +183,7 @@ export function PostComposer({ open, onOpenChange, trigger, block, onConfirm }: 
           <Textarea
             autoFocus
             rows={3}
-            placeholder={TRIGGER_PLACEHOLDER[trigger]}
+            placeholder={getPlaceholder(trigger, block)}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             className="min-h-[4.5rem] max-h-48 resize-none text-base"
@@ -216,7 +229,7 @@ export function PostComposer({ open, onOpenChange, trigger, block, onConfirm }: 
           {block && <BlockContent block={block} />}
 
           {error && (
-            <p className="text-sm text-destructive-foreground" role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {error}
             </p>
           )}

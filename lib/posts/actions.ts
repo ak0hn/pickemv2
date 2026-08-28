@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { OpenWeekBlock } from "@/lib/posts/types";
 
@@ -13,6 +14,24 @@ function formatKickoff(iso: string): string {
     timeZone: "America/New_York",
     timeZoneName: "short",
   });
+}
+
+// Shared by every action here that needs "who is the signed-in commissioner" — was
+// duplicated three times before (flagged in PIC-11's E4 review).
+async function getCurrentRoster(supabase: SupabaseClient): Promise<{ id: string }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in.");
+
+  const { data: roster, error } = await supabase
+    .from("roster")
+    .select("id")
+    .eq("auth_user_id", user.id)
+    .single();
+  if (error || !roster) throw new Error("Couldn't find your roster record.");
+
+  return roster;
 }
 
 // Builds CT17's Open Week block from the current slate — one row per game, sorted by
@@ -53,26 +72,17 @@ export async function publishWeekWithPost(input: {
   weekId: string;
   message: string;
   block: OpenWeekBlock;
+  imageUrl: string | null;
 }) {
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not signed in.");
-
-  const { data: roster, error: rosterErr } = await supabase
-    .from("roster")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-  if (rosterErr || !roster) throw new Error("Couldn't find your roster record.");
+  const roster = await getCurrentRoster(supabase);
 
   const { error } = await supabase.rpc("publish_week_with_post", {
     p_week_id: input.weekId,
     p_author_roster_id: roster.id,
     p_message: input.message,
     p_block_data: input.block,
+    p_image_url: input.imageUrl,
   });
   if (error) throw new Error(error.message);
 
@@ -84,18 +94,7 @@ export async function publishWeekWithPost(input: {
 // that can be posted standalone, right now, with nothing else needing to exist first.
 export async function createFreeformPost(input: { message: string; imageUrl: string | null }) {
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not signed in.");
-
-  const { data: roster, error: rosterErr } = await supabase
-    .from("roster")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-  if (rosterErr || !roster) throw new Error("Couldn't find your roster record.");
+  const roster = await getCurrentRoster(supabase);
 
   const { error } = await supabase.from("posts").insert({
     author_roster_id: roster.id,
@@ -117,19 +116,12 @@ export async function uploadPostImage(formData: FormData): Promise<string> {
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not signed in.");
+  const roster = await getCurrentRoster(supabase);
 
-  const { data: roster, error: rosterErr } = await supabase
-    .from("roster")
-    .select("id")
-    .eq("auth_user_id", user.id)
-    .single();
-  if (rosterErr || !roster) throw new Error("Couldn't find your roster record.");
-
-  const ext = file.name.split(".").pop() ?? "jpg";
+  // file.name.split(".").pop() returns the whole name (not undefined) when there's no
+  // dot at all, so the ?? "jpg" fallback never triggers for a dotless filename — check
+  // for a dot explicitly instead.
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
   const path = `${roster.id}/${Date.now()}.${ext}`;
 
   const { error: uploadErr } = await supabase.storage.from("post-images").upload(path, file);

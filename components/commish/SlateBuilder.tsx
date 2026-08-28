@@ -115,10 +115,19 @@ export function SlateBuilder() {
     }
   }
 
-  async function handleConfirmOpenWeekPost(message: string) {
+  async function handleConfirmOpenWeekPost(message: string, imageUrl: string | null) {
     if (!data || !openWeekBlock) return;
-    await publishWeekWithPost({ weekId: data.week.id, message, block: openWeekBlock });
-    await load();
+    await publishWeekWithPost({ weekId: data.week.id, message, block: openWeekBlock, imageUrl });
+    // The publish itself already succeeded by this point — a refetch failure here isn't
+    // a post failure and shouldn't be reported to the composer as one (it would let the
+    // commish "retry" a publish that already went through, hitting the RPC's own
+    // already-published guard). Swallow and just log; the next natural reload picks up
+    // the real state regardless.
+    try {
+      await load();
+    } catch (err) {
+      console.error("Failed to refresh the slate after publishing:", err);
+    }
   }
 
   if (state === "loading") {
@@ -144,7 +153,7 @@ export function SlateBuilder() {
     return (
       <Card className="border-destructive/40 bg-destructive/5">
         <CardContent className="flex flex-col items-start gap-2 pt-6">
-          <p className="text-sm text-destructive-foreground">
+          <p className="text-sm text-destructive">
             Couldn&apos;t load the slate. Check your connection and try again.
           </p>
           <Button size="sm" variant="secondary" onClick={load}>
@@ -209,7 +218,7 @@ export function SlateBuilder() {
           )}
 
           {errorMessage && (
-            <p className="text-sm text-destructive-foreground" role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {errorMessage}
             </p>
           )}
