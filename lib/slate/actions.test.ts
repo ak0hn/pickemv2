@@ -103,16 +103,44 @@ describe("publishWeek (CT4)", () => {
     expect(gamesQueried).toBe(false);
   });
 
-  it("Given a draft week where some games still have no spread, When publish is attempted, Then it throws and does not update the week", async () => {
+  it("Given a draft week where every game is voided, When publish is attempted, Then it throws before even checking spreads", async () => {
     let weekUpdateArgs: unknown = null;
+    let gamesQueryCount = 0;
     mockFrom.mockImplementation((table: string) => {
       if (table === "weeks") {
         return chainable({ data: { state: "draft" }, error: null }, (method, args) => {
           if (method === "update") weekUpdateArgs = args[0];
         });
       }
-      // 3 games in this week still have spread = null
-      if (table === "games") return chainable({ data: null, error: null, count: 3 });
+      if (table === "games") {
+        gamesQueryCount += 1;
+        // Zero non-voided games — every game this week is voided.
+        return chainable({ data: null, error: null, count: 0 });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    await expect(publishWeek("week-1")).rejects.toThrow(/nothing for gms to pick/i);
+    expect(weekUpdateArgs).toBeNull();
+    // Only the pickable-games check ran — never got to the spread check.
+    expect(gamesQueryCount).toBe(1);
+  });
+
+  it("Given a draft week where some games still have no spread, When publish is attempted, Then it throws and does not update the week", async () => {
+    let weekUpdateArgs: unknown = null;
+    let gamesQueryCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") {
+        return chainable({ data: { state: "draft" }, error: null }, (method, args) => {
+          if (method === "update") weekUpdateArgs = args[0];
+        });
+      }
+      if (table === "games") {
+        gamesQueryCount += 1;
+        // First call: pickable-games count (non-zero, passes). Second call: 3 games
+        // still have spread = null.
+        return chainable({ data: null, error: null, count: gamesQueryCount === 1 ? 6 : 3 });
+      }
       return chainable({ data: null, error: null });
     });
 
@@ -123,6 +151,7 @@ describe("publishWeek (CT4)", () => {
   it("Given a draft week where every game has a spread set, When published, Then the week row is updated with state: 'published'", async () => {
     let weekUpdateArgs: Record<string, unknown> | null = null;
     let weekCallCount = 0;
+    let gamesQueryCount = 0;
     mockFrom.mockImplementation((table: string) => {
       if (table === "weeks") {
         weekCallCount += 1;
@@ -135,8 +164,12 @@ describe("publishWeek (CT4)", () => {
           if (method === "update") weekUpdateArgs = args[0] as Record<string, unknown>;
         });
       }
-      // no games remain with spread = null
-      if (table === "games") return chainable({ data: null, error: null, count: 0 });
+      if (table === "games") {
+        gamesQueryCount += 1;
+        // First call: pickable-games count (6, passes). Second call: no games remain
+        // with spread = null.
+        return chainable({ data: null, error: null, count: gamesQueryCount === 1 ? 6 : 0 });
+      }
       return chainable({ data: null, error: null });
     });
 

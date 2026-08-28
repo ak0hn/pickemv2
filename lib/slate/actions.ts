@@ -66,16 +66,28 @@ export async function publishWeek(weekId: string) {
     throw new Error(`Can't publish a week that's already ${week.state}.`);
   }
 
-  const { count, error: countErr } = await supabase
+  const { count: pickableCount, error: pickableErr } = await supabase
     .from("games")
     .select("id", { count: "exact", head: true })
     .eq("week_id", weekId)
-    .neq("status", "voided") // a voided game (CT7) doesn't need a spread to publish
+    .neq("status", "voided"); // a voided game (CT7) is never pickable
+
+  if (pickableErr) throw new Error(`Couldn't check the slate: ${pickableErr.message}`);
+  if ((pickableCount ?? 0) === 0) {
+    throw new Error("Every game this week is voided — there's nothing for GMs to pick.");
+  }
+
+  const { count: missingSpreadCount, error: countErr } = await supabase
+    .from("games")
+    .select("id", { count: "exact", head: true })
+    .eq("week_id", weekId)
+    .neq("status", "voided") // a voided game doesn't need a spread to publish
     .is("spread", null);
 
   if (countErr) throw new Error(`Couldn't check the slate: ${countErr.message}`);
-  if (count && count > 0) {
-    throw new Error(`${count} game${count === 1 ? "" : "s"} still ${count === 1 ? "needs" : "need"} a spread before publishing.`);
+  const missing = missingSpreadCount ?? 0;
+  if (missing > 0) {
+    throw new Error(`${missing} game${missing === 1 ? "" : "s"} still ${missing === 1 ? "needs" : "need"} a spread before publishing.`);
   }
 
   const { error } = await supabase.from("weeks").update({ state: "published" }).eq("id", weekId);
