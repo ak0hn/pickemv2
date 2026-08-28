@@ -37,10 +37,21 @@ export function NavBar() {
               href={item.href}
               className={cn(
                 "flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors",
-                active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                // text-primary matched --surface exactly after the navy re-theme, making
+                // the active tab's own text invisible against the nav bar's background.
+                // text-foreground (white) is the highest-contrast option in the palette;
+                // the pill behind the icon gives a second, color-independent selection cue.
+                active ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className="h-5 w-5" />
+              <span
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-full transition-colors",
+                  active && "bg-foreground/15"
+                )}
+              >
+                <Icon className="h-5 w-5" />
+              </span>
               <span className="truncate">{item.label}</span>
             </Link>
           );
