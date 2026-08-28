@@ -7,13 +7,19 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import { SlateBuilder } from "@/components/commish/SlateBuilder";
+import { PostComposer } from "@/components/composer/PostComposer";
+import { createFreeformPost } from "@/lib/posts/actions";
 
 export default function CommishPage() {
   const { now, persona, tiebreakerInvoked, setTiebreakerInvoked } = useDev();
   const [weekOffset] = useState(0);
+  const [composerOpen, setComposerOpen] = useState(false);
   const phase = getWeekPhase(weekOffset, now, tiebreakerInvoked);
+
+  async function handleFreeformPost(message: string, imageUrl: string | null) {
+    await createFreeformPost({ message, imageUrl });
+  }
 
   if (persona.role !== "commissioner") {
     return (
@@ -38,13 +44,20 @@ export default function CommishPage() {
         <CardHeader>
           <p className="text-sm font-medium">Post to Feed</p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <Textarea placeholder="Week open announcement, mid-week update..." />
-          <Button size="sm" className="self-start">
-            Post
+        <CardContent>
+          <Button size="sm" onClick={() => setComposerOpen(true)}>
+            New post
           </Button>
         </CardContent>
       </Card>
+
+      <PostComposer
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        trigger="freeform"
+        block={null}
+        onConfirm={handleFreeformPost}
+      />
 
       <Card>
         <CardHeader>
