@@ -218,7 +218,13 @@ export function SlateBuilder() {
                 id="edit-spread"
                 type="number"
                 step="0.5"
-                placeholder="-6.5"
+                // "-6.5" alone reads as a real value at a glance on this dark palette —
+                // placeholder and typed-text colors are both light-on-dark and close
+                // enough that Alex mistook it for a pre-filled spread during QA. Purely
+                // descriptive wording (no numeric example that could pass for a real
+                // answer), plus italics, gives a second cue beyond color.
+                placeholder="No spread set"
+                className="placeholder:italic"
                 value={editSpreadValue}
                 onChange={(e) => setEditSpreadValue(e.target.value)}
               />
