@@ -76,21 +76,42 @@ describe("buildOpenWeekBlock (CT17)", () => {
 describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
   const block: OpenWeekBlock = { type: "open_week", weekNumber: 1, games: [] };
 
-  it("Given a signed-in commissioner, When publishing, Then it calls the atomic RPC with the resolved roster id, message, and block", async () => {
+  it("Given a signed-in commissioner with an attached image, When publishing, Then it calls the atomic RPC with the resolved roster id, message, block, and image URL", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "roster") return chainable(FAKE_ROSTER);
       return chainable({ data: null, error: null });
     });
     mockRpc.mockResolvedValue({ data: null, error: null });
 
-    await publishWeekWithPost({ weekId: "week-1", message: "Slate's up!", block });
+    await publishWeekWithPost({
+      weekId: "week-1",
+      message: "Slate's up!",
+      block,
+      imageUrl: "https://example.supabase.co/storage/v1/object/public/post-images/roster-1/1.jpg",
+    });
 
     expect(mockRpc).toHaveBeenCalledWith("publish_week_with_post", {
       p_week_id: "week-1",
       p_author_roster_id: "roster-1",
       p_message: "Slate's up!",
       p_block_data: block,
+      p_image_url: "https://example.supabase.co/storage/v1/object/public/post-images/roster-1/1.jpg",
     });
+  });
+
+  it("Given no image was attached, When publishing, Then p_image_url is passed as null, not omitted", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "roster") return chainable(FAKE_ROSTER);
+      return chainable({ data: null, error: null });
+    });
+    mockRpc.mockResolvedValue({ data: null, error: null });
+
+    await publishWeekWithPost({ weekId: "week-1", message: "Slate's up!", block, imageUrl: null });
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      "publish_week_with_post",
+      expect.objectContaining({ p_image_url: null })
+    );
   });
 
   it("Given the RPC rejects (e.g. a game is still missing a spread), When publishing, Then it throws with that message instead of silently succeeding", async () => {
@@ -104,7 +125,7 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
     });
 
     await expect(
-      publishWeekWithPost({ weekId: "week-1", message: "", block })
+      publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null })
     ).rejects.toThrow(/still need a spread/i);
   });
 
@@ -112,7 +133,7 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
 
     await expect(
-      publishWeekWithPost({ weekId: "week-1", message: "", block })
+      publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null })
     ).rejects.toThrow(/not signed in/i);
     expect(mockRpc).not.toHaveBeenCalled();
   });
