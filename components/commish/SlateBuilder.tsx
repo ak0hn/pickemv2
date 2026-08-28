@@ -7,13 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -24,13 +18,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import {
-  getActiveSlateAction,
-  addGame,
-  checkSpreadEditImpact,
-  applySpreadEdit,
-  publishWeek,
-} from "@/lib/slate/actions";
+import { getActiveSlateAction, checkSpreadEditImpact, applySpreadEdit, publishWeek } from "@/lib/slate/actions";
 import type { SlateData, SlateGame } from "@/lib/slate/types";
 
 type LoadState = "loading" | "loaded" | "empty" | "error";
@@ -38,12 +26,11 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 export function SlateBuilder() {
   const [data, setData] = useState<SlateData | null>(null);
   const [state, setState] = useState<LoadState>("loading");
-  const [addOpen, setAddOpen] = useState(false);
   const [editGame, setEditGame] = useState<SlateGame | null>(null);
   const [editSpreadValue, setEditSpreadValue] = useState("");
   const [editWarning, setEditWarning] = useState<{ affectedCount: number } | null>(null);
-  const [publishing, setPublishing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [checkingEdit, setCheckingEdit] = useState(false);
 
@@ -56,6 +43,9 @@ export function SlateBuilder() {
         return;
       }
       setData(slate);
+      // Games are seeded from the season schedule ahead of time — an empty games list
+      // here means schedule seeding hasn't happened for this week, not "nothing entered
+      // yet." That's a data problem to flag, not a normal first-use state.
       setState(slate.games.length === 0 ? "empty" : "loaded");
     } catch {
       setState("error");
@@ -65,32 +55,6 @@ export function SlateBuilder() {
   useEffect(() => {
     load();
   }, [load]);
-
-  async function handleAddGame(formData: FormData) {
-    if (!data) return;
-    setErrorMessage(null);
-    setSaving(true);
-    try {
-      const kickoffRaw = String(formData.get("kickoff"));
-      const kickoffDate = new Date(kickoffRaw);
-      if (Number.isNaN(kickoffDate.getTime())) {
-        throw new Error("Kickoff time is invalid.");
-      }
-      await addGame({
-        weekId: data.week.id,
-        awayTeam: String(formData.get("away")),
-        homeTeam: String(formData.get("home")),
-        kickoffAt: kickoffDate.toISOString(),
-        spread: formData.get("spread") ? Number(formData.get("spread")) : null,
-      });
-      setAddOpen(false);
-      await load();
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Couldn't add the game.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function startEditSpread(game: SlateGame) {
     if (checkingEdit) return; // guards against a double-click firing two concurrent checks
@@ -189,8 +153,9 @@ export function SlateBuilder() {
         <CardContent className="flex flex-col gap-2">
           {state === "empty" && (
             <p className="text-sm text-muted-foreground">
-              Week {data.week.week_number} slate is empty. Add this week&apos;s matchups to get
-              started.
+              No games found for Week {data.week.week_number}. The season schedule may not have
+              been seeded yet — this isn&apos;t something to fix by adding games manually, check
+              the schedule seed.
             </p>
           )}
 
@@ -211,19 +176,15 @@ export function SlateBuilder() {
             ))}
 
           {/* CT1: always visible, disabled — a clear future integration point, not hidden. */}
-          <div className="mt-2 flex items-center gap-2">
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              Add Game
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled
-              title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
-            >
-              Pull from Odds API
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+            className="mt-2 self-start"
+            title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
+          >
+            Pull spreads from Odds API
+          </Button>
 
           {data.week.state === "draft" && state === "loaded" && (
             <Button size="sm" className="self-start" onClick={handlePublish} disabled={publishing}>
@@ -240,55 +201,14 @@ export function SlateBuilder() {
       </Card>
 
       <Sheet
-        open={addOpen}
-        onOpenChange={(open) => {
-          setAddOpen(open);
-          if (!open) setErrorMessage(null);
-        }}
-      >
-        <SheetContent side="bottom">
-          <SheetHeader>
-            <SheetTitle>Add game</SheetTitle>
-          </SheetHeader>
-          <form
-            action={handleAddGame}
-            className="flex flex-col gap-4 px-4"
-          >
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <Label htmlFor="away">Away</Label>
-                <Input id="away" name="away" placeholder="NYJ" maxLength={3} required />
-              </div>
-              <div className="flex-1">
-                <Label htmlFor="home">Home</Label>
-                <Input id="home" name="home" placeholder="BUF" maxLength={3} required />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="kickoff">Kickoff</Label>
-              <Input id="kickoff" name="kickoff" type="datetime-local" required />
-            </div>
-            <div>
-              <Label htmlFor="spread">Spread (home team, optional)</Label>
-              <Input id="spread" name="spread" type="number" step="0.5" placeholder="-6.5" />
-            </div>
-            <SheetFooter>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Adding…" : "Add game"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet
         open={editGame !== null && !editWarning && !saving}
         onOpenChange={(open) => !open && setEditGame(null)}
       >
         <SheetContent side="bottom">
           <SheetHeader>
             <SheetTitle>
-              Edit spread — {editGame?.away_team} @ {editGame?.home_team}
+              {editGame?.spread === null ? "Set spread" : "Edit spread"} — {editGame?.away_team} @{" "}
+              {editGame?.home_team}
             </SheetTitle>
           </SheetHeader>
           <div className="flex flex-col gap-4 px-4">
@@ -298,6 +218,7 @@ export function SlateBuilder() {
                 id="edit-spread"
                 type="number"
                 step="0.5"
+                placeholder="-6.5"
                 value={editSpreadValue}
                 onChange={(e) => setEditSpreadValue(e.target.value)}
               />
@@ -317,8 +238,9 @@ export function SlateBuilder() {
             <AlertDialogTitle>This will clear existing picks</AlertDialogTitle>
             <AlertDialogDescription>
               {editWarning?.affectedCount} GM{editWarning?.affectedCount === 1 ? "" : "s"} already
-              picked this game. Changing the spread will clear {editWarning?.affectedCount === 1 ? "that pick" : "those picks"} and notify{" "}
-              {editWarning?.affectedCount === 1 ? "them" : "them"} to resubmit before kickoff.
+              picked this game. Changing the spread will clear{" "}
+              {editWarning?.affectedCount === 1 ? "that pick" : "those picks"} and notify them to
+              resubmit before kickoff.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

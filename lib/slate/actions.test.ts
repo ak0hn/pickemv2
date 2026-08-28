@@ -29,9 +29,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { checkSpreadEditImpact, applySpreadEdit, publishWeek, addGame } = await import(
-  "./actions"
-);
+const { checkSpreadEditImpact, applySpreadEdit, publishWeek } = await import("./actions");
 
 beforeEach(() => {
   mockFrom.mockReset();
@@ -105,7 +103,7 @@ describe("publishWeek (CT4)", () => {
     expect(gamesQueried).toBe(false);
   });
 
-  it("Given a draft week with zero games, When publish is attempted, Then it throws and does not update the week", async () => {
+  it("Given a draft week where some games still have no spread, When publish is attempted, Then it throws and does not update the week", async () => {
     let weekUpdateArgs: unknown = null;
     mockFrom.mockImplementation((table: string) => {
       if (table === "weeks") {
@@ -113,15 +111,16 @@ describe("publishWeek (CT4)", () => {
           if (method === "update") weekUpdateArgs = args[0];
         });
       }
-      if (table === "games") return chainable({ data: null, error: null, count: 0 });
+      // 3 games in this week still have spread = null
+      if (table === "games") return chainable({ data: null, error: null, count: 3 });
       return chainable({ data: null, error: null });
     });
 
-    await expect(publishWeek("week-1")).rejects.toThrow(/at least one game/i);
+    await expect(publishWeek("week-1")).rejects.toThrow(/still need/i);
     expect(weekUpdateArgs).toBeNull();
   });
 
-  it("Given a draft week with at least one game, When published, Then the week row is updated with state: 'published'", async () => {
+  it("Given a draft week where every game has a spread set, When published, Then the week row is updated with state: 'published'", async () => {
     let weekUpdateArgs: Record<string, unknown> | null = null;
     let weekCallCount = 0;
     mockFrom.mockImplementation((table: string) => {
@@ -136,48 +135,12 @@ describe("publishWeek (CT4)", () => {
           if (method === "update") weekUpdateArgs = args[0] as Record<string, unknown>;
         });
       }
-      if (table === "games") return chainable({ data: null, error: null, count: 3 });
+      // no games remain with spread = null
+      if (table === "games") return chainable({ data: null, error: null, count: 0 });
       return chainable({ data: null, error: null });
     });
 
     await publishWeek("week-1");
     expect(weekUpdateArgs).toEqual({ state: "published" });
-  });
-});
-
-describe("addGame (CT1 stub / CT3 manual entry)", () => {
-  it("Given valid game details, When added, Then team abbreviations are normalized to uppercase", async () => {
-    let insertedRow: Record<string, unknown> | null = null;
-    mockFrom.mockReturnValue(
-      chainable({ data: null, error: null }, (method, args) => {
-        if (method === "insert") insertedRow = args[0] as Record<string, unknown>;
-      })
-    );
-
-    await addGame({
-      weekId: "week-1",
-      awayTeam: "nyj",
-      homeTeam: "buf",
-      kickoffAt: new Date().toISOString(),
-      spread: -6.5,
-    });
-
-    expect(insertedRow).toMatchObject({ away_team: "NYJ", home_team: "BUF" });
-  });
-
-  it("Given an unparseable kickoff timestamp, When addGame is called, Then it throws before touching the database", async () => {
-    mockFrom.mockImplementation(() => {
-      throw new Error("should not reach the database");
-    });
-
-    await expect(
-      addGame({
-        weekId: "week-1",
-        awayTeam: "NYJ",
-        homeTeam: "BUF",
-        kickoffAt: "not-a-real-date",
-        spread: null,
-      })
-    ).rejects.toThrow(/invalid/i);
   });
 });

@@ -11,32 +11,6 @@ export async function getActiveSlateAction() {
   return getActiveSlate();
 }
 
-// CT3 / CT1's disabled-stub area: manual game entry (also the only path in Epic 1 — the
-// Odds API pull itself is CT1, stubbed until Epic 7).
-export async function addGame(input: {
-  weekId: string;
-  awayTeam: string;
-  homeTeam: string;
-  kickoffAt: string;
-  spread: number | null;
-}) {
-  if (Number.isNaN(Date.parse(input.kickoffAt))) {
-    throw new Error("Kickoff time is invalid.");
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase.from("games").insert({
-    week_id: input.weekId,
-    away_team: input.awayTeam.toUpperCase(),
-    home_team: input.homeTeam.toUpperCase(),
-    kickoff_at: input.kickoffAt,
-    spread: input.spread,
-  });
-
-  if (error) throw new Error(`Couldn't add game: ${error.message}`);
-  revalidatePath("/commish");
-}
-
 // CT2's pre-confirm check: does this game have picks that would be voided by an edit?
 export async function checkSpreadEditImpact(gameId: string) {
   const supabase = await createClient();
@@ -73,8 +47,10 @@ export async function applySpreadEdit(gameId: string, newSpread: number | null) 
   revalidatePath("/commish");
 }
 
-// CT4: publish the draft slate. Requires at least one game — publishing an empty week
-// has no meaningful effect for GMs. Also guards against publishing a week that isn't
+// CT4: publish the draft slate. Games are always present (seeded from the season
+// schedule), so the meaningful guard isn't "does at least one game exist" — it's
+// "does every game have a spread yet," since GMs need a real line to pick against for
+// each game, not just some of them. Also guards against publishing a week that isn't
 // actually in draft (e.g. already closed per CT18) — `closed` is meant to be terminal.
 export async function publishWeek(weekId: string) {
   const supabase = await createClient();
@@ -93,11 +69,13 @@ export async function publishWeek(weekId: string) {
   const { count, error: countErr } = await supabase
     .from("games")
     .select("id", { count: "exact", head: true })
-    .eq("week_id", weekId);
+    .eq("week_id", weekId)
+    .neq("status", "voided") // a voided game (CT7) doesn't need a spread to publish
+    .is("spread", null);
 
   if (countErr) throw new Error(`Couldn't check the slate: ${countErr.message}`);
-  if (!count || count === 0) {
-    throw new Error("Add at least one game before publishing.");
+  if (count && count > 0) {
+    throw new Error(`${count} game${count === 1 ? "" : "s"} still ${count === 1 ? "needs" : "need"} a spread before publishing.`);
   }
 
   const { error } = await supabase.from("weeks").update({ state: "published" }).eq("id", weekId);
