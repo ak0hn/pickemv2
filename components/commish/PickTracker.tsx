@@ -31,6 +31,12 @@ export function PickTracker() {
   // a cell that's already correct.
   const [liveOverrides, setLiveOverrides] = useState<Map<string, TrackerPick>>(new Map());
   const channelRef = useRef<RealtimeChannel | null>(null);
+  // Tracks whether this is the channel's first successful connect (no refetch needed —
+  // load() just ran) vs. a reconnect after a drop (refetch needed — picks submitted
+  // during the outage were never delivered and would otherwise stay silently stale once
+  // the reconnect banner clears). Ref, not state, so the subscribe callback's closure
+  // doesn't need to re-read potentially stale React state.
+  const hasConnectedOnceRef = useRef(false);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -65,6 +71,7 @@ export function PickTracker() {
   // commissioner can see before it ever reaches this client.
   useEffect(() => {
     if (!data) return;
+    hasConnectedOnceRef.current = false;
     const weekGameIds = new Set(data.games.map((g) => g.id));
     const supabase = createClient();
     const channel = supabase
@@ -92,13 +99,20 @@ export function PickTracker() {
             return next;
           });
           // A live event proves the tracker has real data now, even if the initial
-          // snapshot loaded before anything had been submitted.
-          setState((s) => (s === "empty-no-picks" ? "loaded" : s));
+          // snapshot loaded before anything had been submitted or before it was published.
+          setState((s) => (s === "empty-no-picks" || s === "empty-draft" ? "loaded" : s));
         }
       )
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") setRealtimeStatus("connected");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        if (status === "SUBSCRIBED") {
+          // Only refetch on a *reconnect* (second-or-later SUBSCRIBED) — the very first
+          // connect follows load()'s own fetch, so refetching there would be redundant.
+          // A reconnect may have missed events entirely while disconnected, so the banner
+          // clearing must not imply the grid is caught up unless it actually re-syncs.
+          if (hasConnectedOnceRef.current) load();
+          hasConnectedOnceRef.current = true;
+          setRealtimeStatus("connected");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           setRealtimeStatus("reconnecting");
         }
       });
@@ -108,7 +122,7 @@ export function PickTracker() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [data]);
+  }, [data, load]);
 
   if (state === "loading") {
     return (
@@ -212,7 +226,17 @@ export function PickTracker() {
           </p>
         )}
 
-        <div className="overflow-x-auto">
+        {/*
+          Both scroll axes must live on the SAME element for `sticky` to work: setting
+          overflow-x alone (per the CSS spec) computes overflow-y to `auto` too, but
+          without a bounded height that axis never actually scrolls, so the browser has
+          no scrollport to stick the header against during page scroll — the header would
+          silently stop sticking at full-launch's ~101 rows (E4 finding; invisible at
+          beta's 5–15 rows since a bare page scroll never got far enough to reveal it).
+          max-h-[70vh] + overflow-auto makes this container the real scroll context for
+          both axes so sticky top/left resolve against it correctly at any roster size.
+        */}
+        <div className="max-h-[70vh] overflow-auto">
           <div
             className="grid w-max"
             style={{ gridTemplateColumns: `80px repeat(${data.games.length}, 48px)` }}

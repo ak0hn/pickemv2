@@ -107,6 +107,38 @@ describe("PickTracker (CT5)", () => {
     expect(screen.getByText("SEA")).toBeInTheDocument();
   });
 
+  it("Given a game whose kickoff has already passed, When rendered, Then the header and cell show the lock icon, the cell gets the muted tint, and the pick value still shows (lock is an overlay, not a replacement)", async () => {
+    // Mocked useDev().now is 2026-09-10T12:00:00Z — this kickoff is 2 hours before that.
+    const lockedGame = { ...GAME, id: "game-locked", kickoff_at: "2026-09-10T10:00:00Z" };
+    mockGetPickTracker.mockResolvedValue({
+      week: WEEK_PUBLISHED,
+      games: [lockedGame],
+      roster: ROSTER,
+      picks: [{ game_id: "game-locked", roster_id: "roster-1", pick_value: "SEA", pick_status: "submitted" }],
+    });
+
+    render(<PickTracker />);
+
+    const cell = await screen.findByText("SEA");
+    // One lock icon in the column header, one overlaid on the cell.
+    expect(screen.getAllByTestId("icon-lock")).toHaveLength(2);
+    expect(cell.closest("button")).toHaveClass("bg-muted");
+  });
+
+  it("Given a game whose kickoff hasn't happened yet, When rendered, Then neither the header nor the cell show a lock icon", async () => {
+    mockGetPickTracker.mockResolvedValue({
+      week: WEEK_PUBLISHED,
+      games: [GAME], // kickoff_at 2026-09-10T17:00:00Z — after mocked now (12:00)
+      roster: ROSTER,
+      picks: [{ game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "submitted" }],
+    });
+
+    render(<PickTracker />);
+
+    await screen.findByText("SEA");
+    expect(screen.queryByTestId("icon-lock")).not.toBeInTheDocument();
+  });
+
   it("Given a GM with no pick on a game, When rendered, Then the cell shows an en-dash rather than blank", async () => {
     mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [] });
     // Force the loaded state (not the empty-no-picks state) by adding a second game with a
@@ -137,14 +169,61 @@ describe("PickTracker (CT5)", () => {
     await screen.findByText("SEA");
 
     await waitFor(() => expect(subscribeCallback).not.toBeNull());
-    subscribeCallback!("SUBSCRIBED");
+    subscribeCallback!("SUBSCRIBED"); // first connect — follows load()'s own fetch, no refetch expected
     expect(screen.queryByText(/reconnecting/i)).not.toBeInTheDocument();
+    expect(mockGetPickTracker).toHaveBeenCalledTimes(1);
 
     subscribeCallback!("CHANNEL_ERROR");
     expect(await screen.findByText(/live updates paused/i)).toBeInTheDocument();
 
-    subscribeCallback!("SUBSCRIBED");
+    subscribeCallback!("SUBSCRIBED"); // reconnect — must refetch, may have missed events while disconnected
     await waitFor(() => expect(screen.queryByText(/reconnecting/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(mockGetPickTracker).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("SEA")).toBeInTheDocument();
+  });
+
+  it("Given a live event arrives while the week is still in draft state, When it arrives, Then the tracker escapes the empty-draft state the same way it escapes empty-no-picks", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_DRAFT, games: [GAME], roster: ROSTER, picks: [] });
+
+    render(<PickTracker />);
+    await screen.findByText(/hasn't been published yet/i);
+
+    await waitFor(() => expect(mockChannel.on).toHaveBeenCalled());
+    const onHandler = mockChannel.on.mock.calls[0][2] as (payload: unknown) => void;
+    onHandler({
+      eventType: "INSERT",
+      new: { game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "submitted" },
+    });
+
+    expect(await screen.findByText("SEA")).toBeInTheDocument();
+    expect(screen.queryByText(/hasn't been published yet/i)).not.toBeInTheDocument();
+  });
+
+  it("Given a live UPDATE event for a pick that already has a snapshot value, When it arrives, Then the cell reflects the new value, not the stale one", async () => {
+    // pick_value uses the home team ("SEA"), which only ever appears in the header as
+    // part of the compound "@SEA" text run — the away team ("NE") appears as an isolated
+    // text node in the header too, which would make findByText("NE") ambiguous (matches
+    // both the header and a cell showing "NE") if used as a pick value here.
+    mockGetPickTracker.mockResolvedValue({
+      week: WEEK_PUBLISHED,
+      games: [GAME],
+      roster: ROSTER,
+      picks: [{ game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "submitted" }],
+    });
+
+    render(<PickTracker />);
+    const cell = await screen.findByRole("button");
+    expect(cell).toHaveTextContent("SEA");
+
+    await waitFor(() => expect(mockChannel.on).toHaveBeenCalled());
+    const onHandler = mockChannel.on.mock.calls[0][2] as (payload: unknown) => void;
+    onHandler({
+      eventType: "UPDATE",
+      new: { game_id: "game-1", roster_id: "roster-1", pick_value: "voided-marker", pick_status: "submitted" },
+    });
+
+    await waitFor(() => expect(cell).toHaveTextContent("voided-marker"));
+    expect(cell).not.toHaveTextContent("SEA");
   });
 
   it("Given a live INSERT event for a game with no prior pick, When it arrives, Then the cell updates without a manual reload", async () => {
