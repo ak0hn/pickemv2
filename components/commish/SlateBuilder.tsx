@@ -19,6 +19,7 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { getActiveSlateAction, checkSpreadEditImpact, applySpreadEdit } from "@/lib/slate/actions";
+import { formatGameDay, formatKickoffTime, formatHomeSpread } from "@/lib/slate/format";
 import { buildOpenWeekBlock, publishWeekWithPost } from "@/lib/posts/actions";
 import type { OpenWeekBlock } from "@/lib/posts/types";
 import { PostComposer } from "@/components/composer/PostComposer";
@@ -201,12 +202,20 @@ export function SlateBuilder() {
                 type="button"
                 disabled={g.status === "final" || checkingEdit}
                 onClick={() => startEditSpread(g)}
-                className="flex min-h-12 items-center justify-between text-left text-sm disabled:opacity-60"
+                className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
               >
-                <span>
-                  {g.away_team} @ {g.home_team}
-                </span>
-                <span className="text-muted-foreground">{g.spread === null ? "—" : g.spread}</span>
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">
+                    {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
+                  </span>
+                  <span>
+                    {g.away_team} @ {g.home_team}
+                  </span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-xs text-muted-foreground">Home Spread</span>
+                  <span>{formatHomeSpread(g.spread)}</span>
+                </div>
               </button>
             ))}
 
