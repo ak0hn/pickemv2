@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { SlateBuilder } from "@/components/commish/SlateBuilder";
 import { WeekCloseControl } from "@/components/commish/WeekCloseControl";
+import { PickTracker } from "@/components/commish/PickTracker";
 import { PostComposer } from "@/components/composer/PostComposer";
 import { createFreeformPost } from "@/lib/posts/actions";
 
@@ -92,17 +93,7 @@ export default function CommishPage() {
 
       <Separator />
 
-      <Card>
-        <CardHeader>
-          <p className="text-sm font-medium">Pick tracker &amp; exceptions</p>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground">
-            Placeholder — per-GM submission status and manual override entry point
-            (Epic 1 build).
-          </p>
-        </CardContent>
-      </Card>
+      <PickTracker />
     </div>
   );
 }
