@@ -2,24 +2,30 @@ import { describe, it, expect } from "vitest";
 import { formatGameDay, formatKickoffTime, formatHomeSpread } from "./format";
 
 describe("formatGameDay (PIC-19)", () => {
-  it("Given a Thursday kickoff, When formatted, Then it returns a 3-letter uppercase day", () => {
-    // 2026-09-10 is a Thursday.
+  it("Given a Thursday kickoff (ET), When formatted, Then it returns a 3-letter uppercase day", () => {
+    // 2026-09-10T17:00:00Z is 1:00 PM EDT the same calendar day — still Thursday.
     expect(formatGameDay("2026-09-10T17:00:00Z")).toBe("THU");
   });
 
-  it("Given a Sunday kickoff, When formatted, Then it returns SUN", () => {
-    // 2026-09-13 is a Sunday.
+  it("Given a Sunday kickoff (ET), When formatted, Then it returns SUN", () => {
+    // 2026-09-13T17:00:00Z is 1:00 PM EDT the same calendar day — still Sunday.
     expect(formatGameDay("2026-09-13T17:00:00Z")).toBe("SUN");
+  });
+
+  it("Given a UTC timestamp that crosses into the next calendar day outside ET, When formatted, Then it still resolves to the ET day, not the runner's local day", () => {
+    // 2026-09-11T02:00:00Z is 10:00 PM EDT on Sept 10 (Thursday) — but in UTC+7 or later,
+    // this same instant is already Sept 11 (Friday). Pinning to America/New_York (the E4
+    // fix) means this must resolve to THU regardless of what timezone the test runner is
+    // in — this is the exact case that was flaky before the timezone was pinned.
+    expect(formatGameDay("2026-09-11T02:00:00Z")).toBe("THU");
   });
 });
 
 describe("formatKickoffTime (PIC-19)", () => {
-  it("Given a kickoff time, When formatted, Then it returns a locale time string with hour and minute", () => {
-    const result = formatKickoffTime("2026-09-10T17:00:00Z");
-    // Exact rendering depends on the runner's locale/timezone, but it must always include
-    // a colon-separated hour:minute — this is what actually matters for the AC (kickoff
-    // time visible as its own field), not a specific timezone.
-    expect(result).toMatch(/\d{1,2}:\d{2}/);
+  it("Given a kickoff time, When formatted, Then it returns the ET time with hour, minute, and timezone label", () => {
+    // Deterministic now that timezone is pinned (E4 fix) — regardless of the runner's own
+    // local timezone, this must always resolve to 1:00 PM EDT.
+    expect(formatKickoffTime("2026-09-10T17:00:00Z")).toBe("1:00 PM EDT");
   });
 });
 
@@ -36,7 +42,7 @@ describe("formatHomeSpread (PIC-19)", () => {
     expect(formatHomeSpread(-3)).toBe("-3");
   });
 
-  it("Given a pick'em (spread of exactly 0), When formatted, Then it shows a bare 0, not +0", () => {
-    expect(formatHomeSpread(0)).toBe("0");
+  it("Given a pick'em (spread of exactly 0), When formatted, Then it shows PK per sports convention, not a bare 0 or +0", () => {
+    expect(formatHomeSpread(0)).toBe("PK");
   });
 });
