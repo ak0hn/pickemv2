@@ -18,7 +18,10 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { getActiveSlateAction, checkSpreadEditImpact, applySpreadEdit, publishWeek } from "@/lib/slate/actions";
+import { getActiveSlateAction, checkSpreadEditImpact, applySpreadEdit } from "@/lib/slate/actions";
+import { buildOpenWeekBlock, publishWeekWithPost } from "@/lib/posts/actions";
+import type { OpenWeekBlock } from "@/lib/posts/types";
+import { PostComposer } from "@/components/composer/PostComposer";
 import type { SlateData, SlateGame } from "@/lib/slate/types";
 
 type LoadState = "loading" | "loaded" | "empty" | "error";
@@ -30,9 +33,11 @@ export function SlateBuilder() {
   const [editSpreadValue, setEditSpreadValue] = useState("");
   const [editWarning, setEditWarning] = useState<{ affectedCount: number } | null>(null);
   const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [checkingEdit, setCheckingEdit] = useState(false);
+  const [openWeekBlock, setOpenWeekBlock] = useState<OpenWeekBlock | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [buildingBlock, setBuildingBlock] = useState(false);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -91,17 +96,47 @@ export function SlateBuilder() {
     }
   }
 
-  async function handlePublish() {
+  // CT4 + CT17: "Publish week" opens the composer pre-filled with the Open Week block —
+  // it no longer publishes directly. The actual publish only happens if the commish
+  // confirms the post (handleConfirmOpenWeekPost below); canceling the composer means
+  // the publish genuinely never ran, per CT17's "never a silent auto-post" AC.
+  async function handleOpenComposer() {
     if (!data) return;
     setErrorMessage(null);
-    setPublishing(true);
+    setBuildingBlock(true);
     try {
-      await publishWeek(data.week.id);
+      const block = await buildOpenWeekBlock(data.week.id);
+      setOpenWeekBlock(block);
+      setComposerOpen(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't prepare the post.");
+    } finally {
+      setBuildingBlock(false);
+    }
+  }
+
+  async function handleConfirmOpenWeekPost(message: string, imageUrl: string | null) {
+    if (!data || !openWeekBlock) return;
+    const result = await publishWeekWithPost({
+      weekId: data.week.id,
+      message,
+      block: openWeekBlock,
+      imageUrl,
+    });
+    if (!result.ok) {
+      // Thrown here (client code, not inside "use server") so PostComposer's existing
+      // catch displays the RPC's real message instead of Next's production redaction.
+      throw new Error(result.error);
+    }
+    // The publish itself already succeeded by this point — a refetch failure here isn't
+    // a post failure and shouldn't be reported to the composer as one (it would let the
+    // commish "retry" a publish that already went through, hitting the RPC's own
+    // already-published guard). Swallow and just log; the next natural reload picks up
+    // the real state regardless.
+    try {
       await load();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Couldn't publish the week.");
-    } finally {
-      setPublishing(false);
+      console.error("Failed to refresh the slate after publishing:", err);
     }
   }
 
@@ -128,7 +163,7 @@ export function SlateBuilder() {
     return (
       <Card className="border-destructive/40 bg-destructive/5">
         <CardContent className="flex flex-col items-start gap-2 pt-6">
-          <p className="text-sm text-destructive-foreground">
+          <p className="text-sm text-destructive">
             Couldn&apos;t load the slate. Check your connection and try again.
           </p>
           <Button size="sm" variant="secondary" onClick={load}>
@@ -187,13 +222,13 @@ export function SlateBuilder() {
           </Button>
 
           {data.week.state === "draft" && state === "loaded" && (
-            <Button size="sm" className="self-start" onClick={handlePublish} disabled={publishing}>
-              {publishing ? "Publishing…" : "Publish week"}
+            <Button size="sm" className="self-start" onClick={handleOpenComposer} disabled={buildingBlock}>
+              {buildingBlock ? "Preparing…" : "Publish week"}
             </Button>
           )}
 
           {errorMessage && (
-            <p className="text-sm text-destructive-foreground" role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {errorMessage}
             </p>
           )}
@@ -263,6 +298,14 @@ export function SlateBuilder() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <PostComposer
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        trigger="open_week"
+        block={openWeekBlock}
+        onConfirm={handleConfirmOpenWeekPost}
+      />
     </>
   );
 }

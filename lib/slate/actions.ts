@@ -47,50 +47,7 @@ export async function applySpreadEdit(gameId: string, newSpread: number | null) 
   revalidatePath("/commish");
 }
 
-// CT4: publish the draft slate. Games are always present (seeded from the season
-// schedule), so the meaningful guard isn't "does at least one game exist" — it's
-// "does every game have a spread yet," since GMs need a real line to pick against for
-// each game, not just some of them. Also guards against publishing a week that isn't
-// actually in draft (e.g. already closed per CT18) — `closed` is meant to be terminal.
-export async function publishWeek(weekId: string) {
-  const supabase = await createClient();
-
-  const { data: week, error: weekErr } = await supabase
-    .from("weeks")
-    .select("state")
-    .eq("id", weekId)
-    .single();
-
-  if (weekErr || !week) throw new Error("Couldn't load the week.");
-  if (week.state !== "draft") {
-    throw new Error(`Can't publish a week that's already ${week.state}.`);
-  }
-
-  const { count: pickableCount, error: pickableErr } = await supabase
-    .from("games")
-    .select("id", { count: "exact", head: true })
-    .eq("week_id", weekId)
-    .neq("status", "voided"); // a voided game (CT7) is never pickable
-
-  if (pickableErr) throw new Error(`Couldn't check the slate: ${pickableErr.message}`);
-  if ((pickableCount ?? 0) === 0) {
-    throw new Error("Every game this week is voided — there's nothing for GMs to pick.");
-  }
-
-  const { count: missingSpreadCount, error: countErr } = await supabase
-    .from("games")
-    .select("id", { count: "exact", head: true })
-    .eq("week_id", weekId)
-    .neq("status", "voided") // a voided game doesn't need a spread to publish
-    .is("spread", null);
-
-  if (countErr) throw new Error(`Couldn't check the slate: ${countErr.message}`);
-  const missing = missingSpreadCount ?? 0;
-  if (missing > 0) {
-    throw new Error(`${missing} game${missing === 1 ? "" : "s"} still ${missing === 1 ? "needs" : "need"} a spread before publishing.`);
-  }
-
-  const { error } = await supabase.from("weeks").update({ state: "published" }).eq("id", weekId);
-  if (error) throw new Error(`Couldn't publish the week: ${error.message}`);
-  revalidatePath("/commish");
-}
+// CT4's publish is now always coupled with CT17's Open Week post (PIC-11) — see
+// lib/posts/actions.ts's publishWeekWithPost and the publish_week_with_post migration,
+// which owns the draft/pickable/missing-spread guards server-side inside the same
+// transaction as the post. No standalone publish-without-a-post path exists anymore.
