@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveSlate } from "@/lib/slate/queries";
 import type { TrackerData } from "@/lib/tracker/types";
@@ -42,4 +43,29 @@ export async function getPickTrackerAction(): Promise<TrackerData | null> {
     roster: roster ?? [],
     picks: picks ?? [],
   };
+}
+
+// CT6: commissioner pick correction, inline from the CT5 grid. Thrown as { ok, error }
+// rather than a real throw (client code must re-throw from this to surface the real
+// message — Next redacts thrown Server Action errors to a generic message in production,
+// same fix as PIC-11/PIC-12's publish/close-week paths) so the correction sheet can show
+// the RPC's actual validation message (e.g. "must be one of the two teams playing").
+export async function applyPickCorrection(input: {
+  gameId: string;
+  rosterId: string;
+  pickValue: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("apply_pick_correction", {
+    p_game_id: input.gameId,
+    p_roster_id: input.rosterId,
+    p_pick_value: input.pickValue,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  // The pick tracker's own Realtime subscription (PIC-14) picks up the row change
+  // directly — this revalidation covers server-rendered surfaces only.
+  revalidatePath("/commish");
+  return { ok: true };
 }

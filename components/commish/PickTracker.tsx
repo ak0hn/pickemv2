@@ -5,10 +5,12 @@ import { Lock } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { useDev } from "@/lib/dev/DevProvider";
 import { createClient } from "@/lib/supabase/client";
-import { getPickTrackerAction } from "@/lib/tracker/actions";
-import type { TrackerData, TrackerPick } from "@/lib/tracker/types";
+import { getPickTrackerAction, applyPickCorrection } from "@/lib/tracker/actions";
+import type { TrackerData, TrackerPick, TrackerRoster } from "@/lib/tracker/types";
+import type { SlateGame } from "@/lib/slate/types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 type LoadState = "loading" | "loaded" | "empty-draft" | "empty-no-picks" | "error";
@@ -37,6 +39,16 @@ export function PickTracker() {
   // the reconnect banner clears). Ref, not state, so the subscribe callback's closure
   // doesn't need to re-read potentially stale React state.
   const hasConnectedOnceRef = useRef(false);
+  // CT6: which cell's correction sheet is open, if any. Always available regardless of
+  // lock state — "Commish can manually edit any GM's picks for any week, always
+  // available" (Confirmed Mechanics) — no time gating on this, unlike a GM's own
+  // self-serve edit window.
+  const [correcting, setCorrecting] = useState<{ game: SlateGame; roster: TrackerRoster } | null>(
+    null
+  );
+  const [correctionValue, setCorrectionValue] = useState<string | null>(null);
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -211,11 +223,48 @@ export function PickTracker() {
     liveOverrides.get(pickKey(gameId, rosterId)) ??
     data.picks.find((p) => p.game_id === gameId && p.roster_id === rosterId);
 
+  function openCorrection(game: SlateGame, roster: TrackerRoster) {
+    // E4 fix: without this guard, opening a second cell while the first correction's
+    // save is still in flight lets that first save's resolution (setCorrecting(null))
+    // close the SECOND cell's sheet out from under the commish — the grid buttons are
+    // also disabled during saving (belt-and-suspenders) but this guard covers any other
+    // path that could call openCorrection mid-save.
+    if (saving) return;
+    const existing = pickFor(game.id, roster.id);
+    setCorrectionError(null);
+    setCorrectionValue(existing && existing.pick_status !== "voided" ? existing.pick_value : null);
+    setCorrecting({ game, roster });
+  }
+
+  async function confirmCorrection() {
+    if (!correcting || !correctionValue) return;
+    setSaving(true);
+    setCorrectionError(null);
+    try {
+      const result = await applyPickCorrection({
+        gameId: correcting.game.id,
+        rosterId: correcting.roster.id,
+        pickValue: correctionValue,
+      });
+      if (!result.ok) {
+        setCorrectionError(result.error);
+        return;
+      }
+      setCorrecting(null);
+      // The Realtime subscription (PIC-14) will also deliver this same update, but not
+      // waiting on that round-trip keeps the sheet's own close feeling immediate.
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <p className="text-sm font-medium">Pick tracker</p>
-      </CardHeader>
+    <>
+      <Card>
+        <CardHeader>
+          <p className="text-sm font-medium">Pick tracker</p>
+        </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {realtimeStatus === "reconnecting" && (
           <p
@@ -274,9 +323,10 @@ export function PickTracker() {
                     <button
                       key={`${g.id}-${r.id}`}
                       type="button"
-                      disabled
-                      title="Pick correction arrives in PIC-15"
-                      className={`relative flex h-12 w-12 items-center justify-center text-xs disabled:cursor-default ${
+                      disabled={saving}
+                      onClick={() => openCorrection(g, r)}
+                      title={`Correct ${r.display_name ?? r.email}'s pick`}
+                      className={`relative flex h-12 w-12 items-center justify-center text-xs disabled:cursor-not-allowed ${
                         locked ? "bg-muted" : ""
                       }`}
                     >
@@ -292,6 +342,76 @@ export function PickTracker() {
           </div>
         </div>
       </CardContent>
-    </Card>
+      </Card>
+
+      <Sheet open={correcting !== null} onOpenChange={(open) => !open && setCorrecting(null)}>
+        <SheetContent side="bottom">
+          <SheetHeader>
+            <SheetTitle>
+              {correcting?.roster.display_name ?? correcting?.roster.email} —{" "}
+              {correcting?.game.away_team} @ {correcting?.game.home_team}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col gap-4 px-4">
+            <p className="text-sm text-muted-foreground">
+              Current pick:{" "}
+              {(() => {
+                if (!correcting) return "—";
+                const existing = pickFor(correcting.game.id, correcting.roster.id);
+                return existing && existing.pick_status !== "voided" && existing.pick_value
+                  ? existing.pick_value
+                  : "—";
+              })()}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                disabled={saving}
+                variant={correctionValue === correcting?.game.away_team ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setCorrectionValue(correcting?.game.away_team ?? null)}
+              >
+                {correcting?.game.away_team}
+              </Button>
+              <Button
+                type="button"
+                disabled={saving}
+                variant={correctionValue === correcting?.game.home_team ? "default" : "outline"}
+                className="flex-1"
+                onClick={() => setCorrectionValue(correcting?.game.home_team ?? null)}
+              >
+                {correcting?.game.home_team}
+              </Button>
+            </div>
+
+            {correctionError && (
+              <p className="text-sm text-destructive" role="alert">
+                {correctionError}
+              </p>
+            )}
+
+            <SheetFooter className="flex-col gap-2">
+              <Button
+                variant="destructive"
+                className="w-full"
+                disabled={!correctionValue || saving}
+                onClick={confirmCorrection}
+              >
+                {saving ? "Saving…" : "Confirm correction"}
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                className="w-full"
+                disabled={saving}
+                onClick={() => setCorrecting(null)}
+              >
+                Cancel
+              </Button>
+            </SheetFooter>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

@@ -18,9 +18,11 @@ function chainable(result: { data: unknown; error: unknown }, onCall?: (method: 
 }
 
 const mockFrom = vi.fn();
+const mockRpc = vi.fn();
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({ from: mockFrom }),
+  createClient: async () => ({ from: mockFrom, rpc: mockRpc }),
 }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 // getPickTrackerAction reuses getActiveSlate() for the week+games half (E4 fix — this
 // used to duplicate that query verbatim) — mocked directly so this test only needs to
@@ -30,10 +32,11 @@ vi.mock("@/lib/slate/queries", () => ({
   getActiveSlate: () => mockGetActiveSlate(),
 }));
 
-const { getPickTrackerAction } = await import("./actions");
+const { getPickTrackerAction, applyPickCorrection } = await import("./actions");
 
 beforeEach(() => {
   mockFrom.mockReset();
+  mockRpc.mockReset();
   mockGetActiveSlate.mockReset();
 });
 
@@ -112,5 +115,35 @@ describe("getPickTrackerAction (CT5)", () => {
     const result = await getPickTrackerAction();
 
     expect(result).toBeNull();
+  });
+});
+
+describe("applyPickCorrection (CT6)", () => {
+  it("Given a correction, When applied successfully, Then it calls the atomic apply_pick_correction RPC with the game, roster, and pick value", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+
+    const result = await applyPickCorrection({ gameId: "game-1", rosterId: "roster-1", pickValue: "NE" });
+
+    expect(result).toEqual({ ok: true });
+    expect(mockRpc).toHaveBeenCalledWith("apply_pick_correction", {
+      p_game_id: "game-1",
+      p_roster_id: "roster-1",
+      p_pick_value: "NE",
+    });
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the RPC rejects (e.g. a non-commissioner caller, or a value that isn't one of the two teams), When applied, Then it returns the real error message rather than throwing", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { message: "Pick value must be one of the two teams playing in this game" },
+    });
+
+    const result = await applyPickCorrection({ gameId: "game-1", rosterId: "roster-1", pickValue: "XYZ" });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Pick value must be one of the two teams playing in this game",
+    });
   });
 });

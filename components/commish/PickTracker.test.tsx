@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import "@/lib/test-utils/extend-matchers";
 import { PickTracker } from "./PickTracker";
+import type { ReactNode } from "react";
 
 afterEach(cleanup);
 
@@ -13,13 +14,49 @@ vi.mock("lucide-react", () => ({
   Lock: () => <span data-testid="icon-lock" />,
 }));
 
+// Same Sheet stand-in as PostComposer.test.tsx (PIC-11/PIC-15) — Radix's real Dialog
+// primitive (which Sheet wraps) hangs indefinitely under this project's jsdom + vitest
+// combination. What these tests need to verify is CT6's own correction logic (does
+// tapping a cell open the sheet with the right current value, does Confirm call the RPC
+// with the right args), not Radix's dialog mechanics. Includes the same synthetic
+// dismiss button as PostComposer.test.tsx's mock (E4 finding — the first version of this
+// mock omitted it, leaving the onOpenChange(false) path — backdrop tap/swipe/Escape in
+// the real Sheet — untested).
+vi.mock("@/components/ui/sheet", () => ({
+  Sheet: ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: ReactNode;
+  }) =>
+    open ? (
+      <div>
+        {children}
+        <button onClick={() => onOpenChange(false)}>Dismiss</button>
+      </div>
+    ) : null,
+  SheetContent: ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+  SheetHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SheetTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
+  SheetFooter: ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+}));
+
 vi.mock("@/lib/dev/DevProvider", () => ({
   useDev: () => ({ now: new Date("2026-09-10T12:00:00Z") }),
 }));
 
 const mockGetPickTracker = vi.fn();
+const mockApplyPickCorrection = vi.fn();
 vi.mock("@/lib/tracker/actions", () => ({
   getPickTrackerAction: () => mockGetPickTracker(),
+  applyPickCorrection: (...args: unknown[]) => mockApplyPickCorrection(...args),
 }));
 
 // Captures the subscribe callback so tests can drive realtime status transitions
@@ -42,6 +79,7 @@ vi.mock("@/lib/supabase/client", () => ({
 
 beforeEach(() => {
   mockGetPickTracker.mockReset();
+  mockApplyPickCorrection.mockReset();
   subscribeCallback = null;
   mockChannel.subscribe.mockClear();
   // Without this, mock.calls accumulates across tests and mock.calls[0] in a later test
@@ -240,5 +278,183 @@ describe("PickTracker (CT5)", () => {
     });
 
     expect(await screen.findByText("SEA")).toBeInTheDocument();
+  });
+});
+
+describe("Pick correction (CT6)", () => {
+  const PICKED = { game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "submitted" as const };
+
+  it("Given a cell with a submitted pick, When tapped, Then the correction sheet opens showing the GM, matchup, and current pick", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [PICKED] });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+
+    // Scoped to the heading, not screen-wide — "Dev GM" also appears in the grid's own
+    // sticky name column, which stays in the DOM behind the sheet (mocked Sheet doesn't
+    // unmount siblings the way a real modal/portal would).
+    expect(await screen.findByRole("heading", { name: /Dev GM.*NE @ SEA/ })).toBeInTheDocument();
+    expect(screen.getByText(/Current pick:/)).toBeInTheDocument();
+  });
+
+  it("Given a cell with no prior pick, When opened and no team is selected, Then Confirm correction is disabled", async () => {
+    const secondGame = { ...GAME, id: "game-2", away_team: "BUF", home_team: "HOU" };
+    mockGetPickTracker.mockResolvedValue({
+      week: WEEK_PUBLISHED,
+      games: [GAME, secondGame],
+      roster: ROSTER,
+      picks: [{ game_id: "game-2", roster_id: "roster-1", pick_value: "HOU", pick_status: "submitted" }],
+    });
+
+    render(<PickTracker />);
+    const cells = await screen.findAllByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cells[0]); // the no-pick cell (game-1)
+
+    const confirmButton = await screen.findByRole("button", { name: /confirm correction/i });
+    expect(confirmButton).toBeDisabled();
+  });
+
+  it("Given a cell with no prior pick (a roster member who never submitted), When a team is selected and confirmed, Then applyPickCorrection is called — the insert/upsert path, not just correcting an existing value", async () => {
+    const secondGame = { ...GAME, id: "game-2", away_team: "BUF", home_team: "HOU" };
+    mockGetPickTracker.mockResolvedValue({
+      week: WEEK_PUBLISHED,
+      games: [GAME, secondGame],
+      roster: ROSTER,
+      picks: [{ game_id: "game-2", roster_id: "roster-1", pick_value: "HOU", pick_status: "submitted" }],
+    });
+    mockApplyPickCorrection.mockResolvedValue({ ok: true });
+
+    render(<PickTracker />);
+    const cells = await screen.findAllByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cells[0]); // the no-pick cell (game-1)
+
+    await screen.findByText(/Current pick:\s*—/);
+    fireEvent.click(screen.getByRole("button", { name: "SEA" }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
+
+    await waitFor(() =>
+      expect(mockApplyPickCorrection).toHaveBeenCalledWith({
+        gameId: "game-1",
+        rosterId: "roster-1",
+        pickValue: "SEA",
+      })
+    );
+  });
+
+  it("Given a team is selected, When Confirm correction is tapped, Then applyPickCorrection is called with the game, roster, and chosen team, and the sheet closes on success", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [PICKED] });
+    mockApplyPickCorrection.mockResolvedValue({ ok: true });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+
+    const awayButton = await screen.findByRole("button", { name: "NE" });
+    fireEvent.click(awayButton);
+    fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
+
+    await waitFor(() =>
+      expect(mockApplyPickCorrection).toHaveBeenCalledWith({
+        gameId: "game-1",
+        rosterId: "roster-1",
+        pickValue: "NE",
+      })
+    );
+    await waitFor(() => expect(screen.queryByText(/Current pick:/)).not.toBeInTheDocument());
+  });
+
+  it("Given the correction fails, When Confirm correction is tapped, Then the RPC's real error message is shown and the sheet stays open", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [PICKED] });
+    mockApplyPickCorrection.mockResolvedValue({ ok: false, error: "Only the commissioner can correct a pick" });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+    fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
+
+    expect(await screen.findByText("Only the commissioner can correct a pick")).toBeInTheDocument();
+    expect(screen.getByText(/Current pick:/)).toBeInTheDocument();
+  });
+
+  it("Given the correction sheet is open, When Cancel is tapped, Then applyPickCorrection is never called", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [PICKED] });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+    await screen.findByText(/Current pick:/);
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    await waitFor(() => expect(screen.queryByText(/Current pick:/)).not.toBeInTheDocument());
+    expect(mockApplyPickCorrection).not.toHaveBeenCalled();
+  });
+
+  it("Given the correction sheet is open, When dismissed without Cancel (backdrop/swipe/Escape in the real Sheet), Then applyPickCorrection is never called", async () => {
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [PICKED] });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+    await screen.findByText(/Current pick:/);
+
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    await waitFor(() => expect(screen.queryByText(/Current pick:/)).not.toBeInTheDocument());
+    expect(mockApplyPickCorrection).not.toHaveBeenCalled();
+  });
+
+  it("Given a cell whose pick is already scored (game final), When corrected, Then applyPickCorrection is still called with the new value — AC: correction works even after locked/scored", async () => {
+    const scoredPick = { game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "scored" as const };
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [scoredPick] });
+    mockApplyPickCorrection.mockResolvedValue({ ok: true });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+
+    // Current pick reflects the scored value, same as any other pick.
+    expect(await screen.findByText(/Current pick:\s*SEA/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "NE" }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
+
+    await waitFor(() =>
+      expect(mockApplyPickCorrection).toHaveBeenCalledWith({
+        gameId: "game-1",
+        rosterId: "roster-1",
+        pickValue: "NE",
+      })
+    );
+  });
+
+  it("Given a cell whose pick was voided (e.g. by a spread edit), When opened, Then Current pick shows — rather than the stale voided value, and correcting it calls applyPickCorrection normally", async () => {
+    const voidedPick = { game_id: "game-1", roster_id: "roster-1", pick_value: "SEA", pick_status: "voided" as const };
+    mockGetPickTracker.mockResolvedValue({ week: WEEK_PUBLISHED, games: [GAME], roster: ROSTER, picks: [voidedPick] });
+    mockApplyPickCorrection.mockResolvedValue({ ok: true });
+
+    render(<PickTracker />);
+    const cell = await screen.findByTitle(/correct dev gm's pick/i);
+    fireEvent.click(cell);
+
+    // The stale "SEA" value must not appear as the pre-selected/current pick — a voided
+    // pick isn't a live pick, same reasoning as the grid cell showing an en-dash for it.
+    // Asserting on the SEA button specifically (the voided pick's own stale value) is the
+    // direct check; NE not being highlighted would be true either way and wouldn't catch
+    // a regression that pre-selected the stale value (E4 precision note).
+    expect(await screen.findByText(/Current pick:\s*—/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "SEA" })).not.toHaveClass("bg-primary");
+
+    fireEvent.click(screen.getByRole("button", { name: "SEA" }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
+
+    await waitFor(() =>
+      expect(mockApplyPickCorrection).toHaveBeenCalledWith({
+        gameId: "game-1",
+        rosterId: "roster-1",
+        pickValue: "SEA",
+      })
+    );
   });
 });
