@@ -440,8 +440,11 @@ describe("Pick correction (CT6)", () => {
 
     // The stale "SEA" value must not appear as the pre-selected/current pick — a voided
     // pick isn't a live pick, same reasoning as the grid cell showing an en-dash for it.
+    // Asserting on the SEA button specifically (the voided pick's own stale value) is the
+    // direct check; NE not being highlighted would be true either way and wouldn't catch
+    // a regression that pre-selected the stale value (E4 precision note).
     expect(await screen.findByText(/Current pick:\s*—/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "NE" })).not.toHaveClass("bg-primary");
+    expect(screen.getByRole("button", { name: "SEA" })).not.toHaveClass("bg-primary");
 
     fireEvent.click(screen.getByRole("button", { name: "SEA" }));
     fireEvent.click(screen.getByRole("button", { name: /confirm correction/i }));
