@@ -42,9 +42,15 @@ if (gamesErr) {
 
 for (const g of games) {
   // Deterministic-ish plausible scores: home team wins by roughly the spread amount,
-  // occasionally landing exactly on it to exercise the push path.
+  // occasionally landing exactly on it to exercise the push path. A push is only possible
+  // against a whole-point spread — scores are integers, so a half-point spread (the
+  // majority of real lines, e.g. -6.5) can never land exactly on the margin. Fixed in
+  // review: this used to attempt a push against half-point spreads too, which Math.round
+  // silently turned into a narrow cover instead — the push path was never actually
+  // exercised despite the log line claiming it was.
   const homeScore = 20 + Math.floor(Math.random() * 10);
-  const pushThisOne = Math.random() < 0.15;
+  const pushEligible = Number.isInteger(g.spread ?? null);
+  const pushThisOne = pushEligible && Math.random() < 0.15;
   const margin = pushThisOne ? -(g.spread ?? 0) : -(g.spread ?? 0) + (Math.random() < 0.5 ? 3 : -3);
   const awayScore = Math.max(0, homeScore - margin);
   const { error } = await admin

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveSlate } from "@/lib/slate/queries";
+import { getActiveSlate, ACTIVE_WEEK_NUMBER } from "@/lib/slate/queries";
 
 // Thin server-action wrapper so the (client-rendered) Slate Builder can fetch/refetch
 // without a page-level Server Component split — this app's commish page is already
@@ -20,7 +20,7 @@ export async function getCloseableWeekAction(): Promise<{ id: string; state: str
   const { data, error } = await supabase
     .from("weeks")
     .select("id, state")
-    .eq("week_number", 1)
+    .eq("week_number", ACTIVE_WEEK_NUMBER)
     .maybeSingle();
   if (error || !data) return null;
   return data;

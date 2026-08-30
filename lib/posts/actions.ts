@@ -100,9 +100,18 @@ export async function publishWeekWithPost(input: {
 }
 
 // Builds CT18's Close Week block — per-game winners for this week, plus a season-to-date
-// standings snapshot (top 5). Standings are computed on the fly from scored picks; there's
-// no season-record table yet (that's Epic 5's League page) — this is a snapshot for the
-// announcement post, not the authoritative standings source.
+// standings snapshot (top 5). There's no season-record table yet (that's Epic 5's League
+// page) — this is a snapshot for the announcement post, not the authoritative source.
+//
+// Fixed in review (PIC-12 E4): this used to compute standings only from picks already at
+// pick_status = 'scored' — but this block is built and previewed *before* the commish
+// confirms, which is before week_close() has scored the week being closed. Every post
+// would have shipped with the closing week's own results silently missing. Fix: derive
+// correctness on the fly for 'submitted' picks (the same ATS formula week_close() will
+// apply for real on confirm) instead of only trusting already-scored rows, and count a
+// final game with no pick row at all as a loss — matching week_close()'s own "unset ->
+// scored, is_correct = false" rule. This is a preview computed independently of the DB
+// write, not a substitute for it; week_close() remains the only place that persists it.
 export async function buildCloseWeekBlock(weekId: string): Promise<CloseWeekBlock> {
   const supabase = await createClient();
 
@@ -136,29 +145,60 @@ export async function buildCloseWeekBlock(weekId: string): Promise<CloseWeekBloc
     };
   });
 
-  // Season-to-date standings from every scored pick across every final game, not just
-  // this week. Aggregated in JS rather than a filtered-count SQL query — no existing
-  // raw-SQL helper in this codebase, and the row count here is small (roster size x
-  // games played so far).
-  const { data: scoredPicks, error: picksErr } = await supabase
+  const { data: roster, error: rosterErr } = await supabase.from("roster").select("id, display_name");
+  if (rosterErr) throw new Error(`Couldn't load roster: ${rosterErr.message}`);
+
+  const { data: finalGames, error: finalGamesErr } = await supabase
+    .from("games")
+    .select("id, home_team, away_team, home_score, away_score, spread")
+    .eq("status", "final");
+  if (finalGamesErr) throw new Error(`Couldn't load results: ${finalGamesErr.message}`);
+
+  const { data: picks, error: picksErr } = await supabase
     .from("picks")
-    .select("is_correct, roster_id, roster(display_name), games!inner(status, home_score, away_score, spread)")
-    .eq("pick_status", "scored")
-    .eq("games.status", "final");
+    .select("roster_id, game_id, pick_value, pick_status, is_correct")
+    .in("pick_status", ["scored", "submitted"])
+    .in(
+      "game_id",
+      (finalGames ?? []).map((g) => g.id)
+    );
   if (picksErr) throw new Error(`Couldn't load standings: ${picksErr.message}`);
 
+  const pickByRosterAndGame = new Map(picks?.map((p) => [`${p.roster_id}|${p.game_id}`, p]) ?? []);
+
   const byRoster = new Map<string, { name: string; wins: number; losses: number; pushes: number }>();
-  for (const p of scoredPicks ?? []) {
-    const g = p.games as unknown as { home_score: number | null; away_score: number | null; spread: number | null };
-    const name = (p.roster as unknown as { display_name: string | null })?.display_name ?? "Unknown";
-    const entry = byRoster.get(p.roster_id) ?? { name, wins: 0, losses: 0, pushes: 0 };
-    const isPush = g.home_score !== null && g.away_score !== null && g.home_score - g.away_score + (g.spread ?? 0) === 0;
-    if (p.is_correct) entry.wins++;
-    else if (isPush) entry.pushes++;
-    else entry.losses++;
-    byRoster.set(p.roster_id, entry);
+  for (const r of roster ?? []) {
+    const entry = { name: r.display_name ?? "Unknown", wins: 0, losses: 0, pushes: 0 };
+    for (const g of finalGames ?? []) {
+      if (g.home_score === null || g.away_score === null) continue;
+      const margin = g.home_score - g.away_score + (g.spread ?? 0);
+      const isPush = margin === 0;
+      const pick = pickByRosterAndGame.get(`${r.id}|${g.id}`);
+
+      if (!pick) {
+        // No pick at all — always a loss, never a push, regardless of the game's margin.
+        // "Didn't pick, doesn't count," same rule as a missed regular-season pick — a push
+        // classification only applies to someone who actually made a pick on this game.
+        entry.losses++;
+        continue;
+      }
+
+      const isCorrect =
+        pick.pick_status === "scored"
+          ? (pick.is_correct ?? false) // trust the persisted result
+          : pick.pick_value === g.home_team // 'submitted' — derive the same way week_close() will on confirm
+            ? margin > 0
+            : pick.pick_value === g.away_team
+              ? margin < 0
+              : false;
+
+      if (isCorrect) entry.wins++;
+      else if (isPush) entry.pushes++;
+      else entry.losses++;
+    }
+    byRoster.set(r.id, entry);
   }
-  const standings = [...byRoster.values()].sort((a, b) => b.wins - a.wins).slice(0, 5);
+  const standings = [...byRoster.values()].sort((a, b) => b.wins - a.wins || a.losses - b.losses).slice(0, 5);
 
   return { type: "close_week", weekNumber: week.week_number, games: gameRows, standings };
 }
@@ -166,6 +206,12 @@ export async function buildCloseWeekBlock(weekId: string): Promise<CloseWeekBloc
 // CT18: closes the week and posts the results announcement atomically via
 // close_week_with_post — same coupling as Open Week, per the e2e illustration doc (the
 // real manual process treats closing + announcing results as one commish action).
+//
+// Fixed in review (PIC-12 E4): close_week_with_post now derives the author from auth.uid()
+// server-side instead of trusting a caller-supplied roster id — the old signature let any
+// caller post as a different commissioner. No getCurrentRoster call needed here anymore;
+// the role/identity check happens inside the RPC (also fixed in the same review — the
+// function previously had no commissioner check at all).
 export async function closeWeekWithPost(input: {
   weekId: string;
   message: string;
@@ -173,11 +219,9 @@ export async function closeWeekWithPost(input: {
   imageUrl: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
-  const roster = await getCurrentRoster(supabase);
 
   const { error } = await supabase.rpc("close_week_with_post", {
     p_week_id: input.weekId,
-    p_author_roster_id: roster.id,
     p_message: input.message,
     p_block_data: input.block,
     p_image_url: input.imageUrl,
