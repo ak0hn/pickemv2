@@ -117,7 +117,17 @@ export function SlateBuilder() {
 
   async function handleConfirmOpenWeekPost(message: string, imageUrl: string | null) {
     if (!data || !openWeekBlock) return;
-    await publishWeekWithPost({ weekId: data.week.id, message, block: openWeekBlock, imageUrl });
+    const result = await publishWeekWithPost({
+      weekId: data.week.id,
+      message,
+      block: openWeekBlock,
+      imageUrl,
+    });
+    if (!result.ok) {
+      // Thrown here (client code, not inside "use server") so PostComposer's existing
+      // catch displays the RPC's real message instead of Next's production redaction.
+      throw new Error(result.error);
+    }
     // The publish itself already succeeded by this point — a refetch failure here isn't
     // a post failure and shouldn't be reported to the composer as one (it would let the
     // commish "retry" a publish that already went through, hitting the RPC's own

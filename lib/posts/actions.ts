@@ -68,12 +68,20 @@ export async function buildOpenWeekBlock(weekId: string): Promise<OpenWeekBlock>
 
 // CT4 + CT17 coupling: publishes the week and posts the announcement atomically via
 // publish_week_with_post — see the migration for why this can't be two separate calls.
+//
+// Returns a result value rather than throwing for the RPC's own guard failures (missing
+// spreads, already published, all-voided week) — these are expected errors in normal
+// commish operation, not bugs. Next.js redacts thrown Server Action errors to a generic
+// message in production regardless of client-side try/catch, so the RPC's actual,
+// human-readable message (e.g. "3 games still need a spread before publishing") would
+// never reach the commish otherwise. Per Next's own error-handling guidance: model
+// expected errors as return values, reserve throw for genuinely unexpected failures.
 export async function publishWeekWithPost(input: {
   weekId: string;
   message: string;
   block: OpenWeekBlock;
   imageUrl: string | null;
-}) {
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
   const roster = await getCurrentRoster(supabase);
 
@@ -84,10 +92,11 @@ export async function publishWeekWithPost(input: {
     p_block_data: input.block,
     p_image_url: input.imageUrl,
   });
-  if (error) throw new Error(error.message);
+  if (error) return { ok: false, error: error.message };
 
   revalidatePath("/commish");
   revalidatePath("/feed");
+  return { ok: true };
 }
 
 // Free-form post — no block, no coupling to any other action. The only trigger type

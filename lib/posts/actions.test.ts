@@ -114,7 +114,7 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
     );
   });
 
-  it("Given the RPC rejects (e.g. a game is still missing a spread), When publishing, Then it throws with that message instead of silently succeeding", async () => {
+  it("Given the RPC rejects (e.g. a game is still missing a spread), When publishing, Then it returns that message as a value instead of throwing — thrown Server Action errors get redacted to a generic message in production, so an expected validation failure like this must come back as data, not an exception", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "roster") return chainable(FAKE_ROSTER);
       return chainable({ data: null, error: null });
@@ -124,9 +124,9 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
       error: { message: "2 games still need a spread before publishing" },
     });
 
-    await expect(
-      publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null })
-    ).rejects.toThrow(/still need a spread/i);
+    const result = await publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null });
+
+    expect(result).toEqual({ ok: false, error: "2 games still need a spread before publishing" });
   });
 
   it("Given no signed-in user, When publishing, Then it throws before calling the RPC at all", async () => {
