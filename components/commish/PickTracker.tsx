@@ -224,6 +224,12 @@ export function PickTracker() {
     data.picks.find((p) => p.game_id === gameId && p.roster_id === rosterId);
 
   function openCorrection(game: SlateGame, roster: TrackerRoster) {
+    // E4 fix: without this guard, opening a second cell while the first correction's
+    // save is still in flight lets that first save's resolution (setCorrecting(null))
+    // close the SECOND cell's sheet out from under the commish — the grid buttons are
+    // also disabled during saving (belt-and-suspenders) but this guard covers any other
+    // path that could call openCorrection mid-save.
+    if (saving) return;
     const existing = pickFor(game.id, roster.id);
     setCorrectionError(null);
     setCorrectionValue(existing && existing.pick_status !== "voided" ? existing.pick_value : null);
@@ -317,9 +323,10 @@ export function PickTracker() {
                     <button
                       key={`${g.id}-${r.id}`}
                       type="button"
+                      disabled={saving}
                       onClick={() => openCorrection(g, r)}
                       title={`Correct ${r.display_name ?? r.email}'s pick`}
-                      className={`relative flex h-12 w-12 items-center justify-center text-xs ${
+                      className={`relative flex h-12 w-12 items-center justify-center text-xs disabled:cursor-not-allowed ${
                         locked ? "bg-muted" : ""
                       }`}
                     >
@@ -359,6 +366,7 @@ export function PickTracker() {
             <div className="flex gap-2">
               <Button
                 type="button"
+                disabled={saving}
                 variant={correctionValue === correcting?.game.away_team ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => setCorrectionValue(correcting?.game.away_team ?? null)}
@@ -367,6 +375,7 @@ export function PickTracker() {
               </Button>
               <Button
                 type="button"
+                disabled={saving}
                 variant={correctionValue === correcting?.game.home_team ? "default" : "outline"}
                 className="flex-1"
                 onClick={() => setCorrectionValue(correcting?.game.home_team ?? null)}
