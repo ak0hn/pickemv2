@@ -11,6 +11,21 @@ export async function getActiveSlateAction() {
   return getActiveSlate();
 }
 
+// Same single-active-week scope as getActiveSlate (PIC-10's note applies here too — real
+// season navigation across weeks is out of scope until later). Returns null when there's
+// no week to show a Close Week control for at all (still draft) — WeekCloseControl treats
+// that as "render nothing," not an error.
+export async function getCloseableWeekAction(): Promise<{ id: string; state: string } | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("weeks")
+    .select("id, state")
+    .eq("week_number", 1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
 // CT2's pre-confirm check: does this game have picks that would be voided by an edit?
 export async function checkSpreadEditImpact(gameId: string) {
   const supabase = await createClient();

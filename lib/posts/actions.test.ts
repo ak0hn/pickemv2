@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { OpenWeekBlock } from "./types";
+import type { OpenWeekBlock, CloseWeekBlock } from "./types";
 
 function chainable(
   result: { data: unknown; error: unknown; count?: number },
@@ -31,9 +31,8 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { buildOpenWeekBlock, publishWeekWithPost, createFreeformPost } = await import(
-  "./actions"
-);
+const { buildOpenWeekBlock, publishWeekWithPost, createFreeformPost, buildCloseWeekBlock, closeWeekWithPost } =
+  await import("./actions");
 
 const FAKE_USER = { data: { user: { id: "auth-user-1" } }, error: null };
 const FAKE_ROSTER = { data: { id: "roster-1" }, error: null };
@@ -136,6 +135,114 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
       publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null })
     ).rejects.toThrow(/not signed in/i);
     expect(mockRpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildCloseWeekBlock (CT18)", () => {
+  it("Given a final game where home covers, When the block is built, Then the game's winner is 'home' and standings are aggregated from scored picks", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") {
+        return chainable({
+          data: [
+            {
+              away_team: "NYJ",
+              home_team: "BUF",
+              spread: -6.5,
+              kickoff_at: "2026-09-17T20:20:00Z",
+              status: "final",
+              home_score: 24,
+              away_score: 17,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (table === "picks") {
+        return chainable({
+          data: [
+            {
+              is_correct: true,
+              roster_id: "roster-1",
+              roster: { display_name: "Alex" },
+              games: { home_score: 24, away_score: 17, spread: -6.5 },
+            },
+            {
+              is_correct: false,
+              roster_id: "roster-2",
+              roster: { display_name: "Sam" },
+              games: { home_score: 24, away_score: 17, spread: -6.5 },
+            },
+          ],
+          error: null,
+        });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.type).toBe("close_week");
+    expect(block.games[0]).toMatchObject({ away: "NYJ", home: "BUF", winner: "home" });
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 1, losses: 0, pushes: 0 });
+    expect(block.standings).toContainEqual({ name: "Sam", wins: 0, losses: 1, pushes: 0 });
+  });
+
+  it("Given a game that lands exactly on the spread, When standings are aggregated, Then the pick counts as a push, not a loss", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") return chainable({ data: [], error: null });
+      if (table === "picks") {
+        return chainable({
+          data: [
+            {
+              is_correct: false,
+              roster_id: "roster-1",
+              roster: { display_name: "Alex" },
+              games: { home_score: 24, away_score: 17.5, spread: -6.5 }, // margin = 0
+            },
+          ],
+          error: null,
+        });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 0, losses: 0, pushes: 1 });
+  });
+});
+
+describe("closeWeekWithPost (CT18)", () => {
+  const block: CloseWeekBlock = { type: "close_week", weekNumber: 1, games: [], standings: [] };
+
+  it("Given a signed-in commissioner, When closing the week, Then it calls close_week_with_post with the resolved roster id", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "roster") return chainable(FAKE_ROSTER);
+      return chainable({ data: null, error: null });
+    });
+    mockRpc.mockResolvedValue({ data: null, error: null });
+
+    await closeWeekWithPost({ weekId: "week-1", message: "Results are in!", block, imageUrl: null });
+
+    expect(mockRpc).toHaveBeenCalledWith("close_week_with_post", {
+      p_week_id: "week-1",
+      p_author_roster_id: "roster-1",
+      p_message: "Results are in!",
+      p_block_data: block,
+      p_image_url: null,
+    });
+  });
+
+  it("Given the RPC rejects (e.g. the week is already closed by another path), When closing, Then it returns that message as a value instead of throwing", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "roster") return chainable(FAKE_ROSTER);
+      return chainable({ data: null, error: null });
+    });
+    mockRpc.mockResolvedValue({ data: null, error: { message: "Week not found" } });
+
+    const result = await closeWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null });
+
+    expect(result).toEqual({ ok: false, error: "Week not found" });
   });
 });
 
