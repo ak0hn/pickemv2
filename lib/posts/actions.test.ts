@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { OpenWeekBlock } from "./types";
+import type { OpenWeekBlock, CloseWeekBlock } from "./types";
 
 function chainable(
   result: { data: unknown; error: unknown; count?: number },
@@ -31,9 +31,8 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { buildOpenWeekBlock, publishWeekWithPost, createFreeformPost } = await import(
-  "./actions"
-);
+const { buildOpenWeekBlock, publishWeekWithPost, createFreeformPost, buildCloseWeekBlock, closeWeekWithPost } =
+  await import("./actions");
 
 const FAKE_USER = { data: { user: { id: "auth-user-1" } }, error: null };
 const FAKE_ROSTER = { data: { id: "roster-1" }, error: null };
@@ -136,6 +135,127 @@ describe("publishWeekWithPost (CT4 + CT17 coupling)", () => {
       publishWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null })
     ).rejects.toThrow(/not signed in/i);
     expect(mockRpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildCloseWeekBlock (CT18)", () => {
+  const FINAL_GAME = {
+    id: "game-1",
+    away_team: "NYJ",
+    home_team: "BUF",
+    spread: -6.5,
+    kickoff_at: "2026-09-17T20:20:00Z",
+    status: "final",
+    home_score: 24,
+    away_score: 17, // margin = 24 - 17 - 6.5 = 0.5 -> home covers
+  };
+
+  it("Given a final game where home covers, When the block is built, Then the game's winner is 'home' and standings reflect already-scored picks", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") return chainable({ data: [FINAL_GAME], error: null });
+      if (table === "roster") {
+        return chainable({
+          data: [
+            { id: "roster-1", display_name: "Alex" },
+            { id: "roster-2", display_name: "Sam" },
+          ],
+          error: null,
+        });
+      }
+      if (table === "picks") {
+        return chainable({
+          data: [
+            { roster_id: "roster-1", game_id: "game-1", pick_value: "BUF", pick_status: "scored", is_correct: true },
+            { roster_id: "roster-2", game_id: "game-1", pick_value: "NYJ", pick_status: "scored", is_correct: false },
+          ],
+          error: null,
+        });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.type).toBe("close_week");
+    expect(block.games[0]).toMatchObject({ away: "NYJ", home: "BUF", winner: "home" });
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 1, losses: 0, pushes: 0 });
+    expect(block.standings).toContainEqual({ name: "Sam", wins: 0, losses: 1, pushes: 0 });
+  });
+
+  it("Given a pick that's still 'submitted' (not yet scored), When the block is built before the week is closed, Then its outcome is derived on the fly instead of being silently omitted — regression test for the review finding that this block used to be built from pre-close data", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") return chainable({ data: [FINAL_GAME], error: null });
+      if (table === "roster") return chainable({ data: [{ id: "roster-1", display_name: "Alex" }], error: null });
+      if (table === "picks") {
+        return chainable({
+          data: [{ roster_id: "roster-1", game_id: "game-1", pick_value: "BUF", pick_status: "submitted", is_correct: null }],
+          error: null,
+        });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 1, losses: 0, pushes: 0 });
+  });
+
+  it("Given a game that lands exactly on the spread, When standings are aggregated, Then a pick on it counts as a push, not a loss", async () => {
+    const pushGame = { ...FINAL_GAME, home_score: 24, away_score: 17.5 }; // margin = 0
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") return chainable({ data: [pushGame], error: null });
+      if (table === "roster") return chainable({ data: [{ id: "roster-1", display_name: "Alex" }], error: null });
+      if (table === "picks") {
+        return chainable({
+          data: [{ roster_id: "roster-1", game_id: "game-1", pick_value: "BUF", pick_status: "submitted", is_correct: null }],
+          error: null,
+        });
+      }
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 0, losses: 0, pushes: 1 });
+  });
+
+  it("Given a roster member with no pick at all on a final game, When standings are aggregated, Then it counts as a loss even if the game itself was a push", async () => {
+    const pushGame = { ...FINAL_GAME, home_score: 24, away_score: 17.5 }; // margin = 0
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "weeks") return chainable({ data: { week_number: 1 }, error: null });
+      if (table === "games") return chainable({ data: [pushGame], error: null });
+      if (table === "roster") return chainable({ data: [{ id: "roster-1", display_name: "Alex" }], error: null });
+      if (table === "picks") return chainable({ data: [], error: null }); // no pick row for Alex on this game
+      return chainable({ data: null, error: null });
+    });
+
+    const block = await buildCloseWeekBlock("week-1");
+    expect(block.standings).toContainEqual({ name: "Alex", wins: 0, losses: 1, pushes: 0 });
+  });
+});
+
+describe("closeWeekWithPost (CT18)", () => {
+  const block: CloseWeekBlock = { type: "close_week", weekNumber: 1, games: [], standings: [] };
+
+  it("Given a signed-in commissioner, When closing the week, Then it calls close_week_with_post without a caller-supplied author id — the RPC derives it from auth.uid() itself (fixed in review: the old signature let a caller post as a different commissioner)", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+
+    await closeWeekWithPost({ weekId: "week-1", message: "Results are in!", block, imageUrl: null });
+
+    expect(mockRpc).toHaveBeenCalledWith("close_week_with_post", {
+      p_week_id: "week-1",
+      p_message: "Results are in!",
+      p_block_data: block,
+      p_image_url: null,
+    });
+  });
+
+  it("Given the RPC rejects (e.g. the caller isn't the commissioner, or the week is already closed), When closing, Then it returns that message as a value instead of throwing", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "Week not found" } });
+
+    const result = await closeWeekWithPost({ weekId: "week-1", message: "", block, imageUrl: null });
+
+    expect(result).toEqual({ ok: false, error: "Week not found" });
   });
 });
 

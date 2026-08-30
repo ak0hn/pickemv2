@@ -2,8 +2,11 @@ import { createClient } from "@/lib/supabase/server";
 import type { SlateData } from "@/lib/slate/types";
 
 // PIC-10 works against a single active draft week (week 1) — real season-schedule
-// seeding across all weeks is out of scope here; see the seed migration.
-const ACTIVE_WEEK_NUMBER = 1;
+// seeding across all weeks is out of scope here; see the seed migration. Exported so
+// every other single-active-week query (e.g. WeekCloseControl's) references this one
+// constant instead of re-hardcoding the literal — flagged in PIC-12's review as a real
+// risk once week navigation arrives and this needs to change in more than one place.
+export const ACTIVE_WEEK_NUMBER = 1;
 
 export async function getActiveSlate(): Promise<SlateData | null> {
   const supabase = await createClient();
