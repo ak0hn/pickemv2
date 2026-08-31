@@ -160,7 +160,9 @@ export function WeekControlTile() {
   // visible right above it (Alex's call; this narrows the shared composer's remaining
   // scope to freeform + eventually open_tiebreaker).
   async function handlePublish() {
-    if (!data) return;
+    // A message is required to open the week — the button is already disabled on an empty
+    // message, but guard here too rather than trust the disabled state alone.
+    if (!data || openWeekMessage.trim() === "") return;
     setErrorMessage(null);
     setPublishing(true);
     try {
@@ -185,7 +187,8 @@ export function WeekControlTile() {
   }
 
   async function handleClose() {
-    if (!data) return;
+    // Same rule as Open Week — a message is required to close, not silently optional.
+    if (!data || closeWeekMessage.trim() === "") return;
     setErrorMessage(null);
     setClosing(true);
     try {
@@ -281,56 +284,67 @@ export function WeekControlTile() {
           )}
 
           {state === "loaded" && !isComplete && (
-            <div className="flex flex-col gap-2">
-              {data.games.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  disabled={g.status === "final" || checkingEdit}
-                  onClick={() => startEditSpread(g)}
-                  className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
-                >
-                  <div className="flex flex-col">
-                    <span className="text-xs text-muted-foreground">
-                      {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
-                    </span>
-                    <span>
-                      {g.away_team} @ {g.home_team}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-xs text-muted-foreground">Home Spread</span>
-                    <span>{formatHomeSpread(g.spread)}</span>
-                  </div>
-                </button>
-              ))}
-
-              {/* CT1: draft/closed only — once live, don't re-pull; edits are manual. */}
-              {isDraftLike && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled
-                  className="self-start"
-                  title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
-                >
-                  Pull spreads from Odds API
-                </Button>
-              )}
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                {data.games.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    disabled={g.status === "final" || checkingEdit}
+                    onClick={() => startEditSpread(g)}
+                    className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground">
+                        {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
+                      </span>
+                      <span>
+                        {g.away_team} @ {g.home_team}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className="text-xs text-muted-foreground">Home Spread</span>
+                      <span>{formatHomeSpread(g.spread)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
 
               {isDraftLike && (
-                <div className="flex flex-col gap-2 pt-2">
-                  <Label htmlFor="open-week-message">Message to open the week</Label>
-                  <Textarea
-                    id="open-week-message"
-                    placeholder="Add a message to this week's slate…"
-                    value={openWeekMessage}
-                    onChange={(e) => setOpenWeekMessage(e.target.value)}
-                  />
-                  <Button size="sm" className="self-start" onClick={handlePublish} disabled={publishing}>
-                    {publishing ? "Publishing…" : "Publish week"}
-                  </Button>
-                </div>
+                <>
+                  <Separator />
+                  <div className="flex flex-col gap-3">
+                    {/* CT1: draft/closed only — once live, don't re-pull; edits are manual. */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      className="self-start"
+                      title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
+                    >
+                      Pull spreads from Odds API
+                    </Button>
+
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="open-week-message">Message to open the week</Label>
+                      <Textarea
+                        id="open-week-message"
+                        placeholder="Add a message to this week's slate…"
+                        value={openWeekMessage}
+                        onChange={(e) => setOpenWeekMessage(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="self-start"
+                        onClick={handlePublish}
+                        disabled={publishing || openWeekMessage.trim() === ""}
+                      >
+                        {publishing ? "Publishing…" : "Publish week"}
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -388,28 +402,30 @@ export function WeekControlTile() {
 
               <Separator />
 
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
                   <p className="text-sm">Invoke tiebreaker for this week</p>
-                  <p className="text-xs text-muted-foreground">
-                    Dev-only stand-in — the real trigger is Epic 3&apos;s build, not wired
-                    to live data yet.{" "}
-                    {readyForTiebreaker
-                      ? "Sunday's games are final — you can open this now."
-                      : "Available once Sunday's games are final."}
-                  </p>
+                  <Switch
+                    checked={tiebreakerInvoked}
+                    disabled={!readyForTiebreaker}
+                    onCheckedChange={setTiebreakerInvoked}
+                  />
                 </div>
-                <Switch
-                  checked={tiebreakerInvoked}
-                  disabled={!readyForTiebreaker}
-                  onCheckedChange={setTiebreakerInvoked}
-                />
-              </div>
-              {!tiebreakerInvoked && (
-                <p className="-mt-2 text-xs text-muted-foreground">
-                  Not invoked this week — all 6/6 GMs stay co-winners.
+                <p className="text-xs text-muted-foreground">
+                  Dev-only stand-in — the real trigger is Epic 3&apos;s build, not wired to
+                  live data yet.{" "}
+                  {readyForTiebreaker
+                    ? "Sunday's games are final — you can open this now."
+                    : "Available once Sunday's games are final."}
                 </p>
-              )}
+                {!tiebreakerInvoked && (
+                  <p className="text-xs text-muted-foreground">
+                    Not invoked this week — all 6/6 GMs stay co-winners.
+                  </p>
+                )}
+              </div>
+
+              <Separator />
 
               <div className="flex flex-col gap-2">
                 <Label htmlFor="close-week-message">Message to close the week</Label>
@@ -419,7 +435,13 @@ export function WeekControlTile() {
                   value={closeWeekMessage}
                   onChange={(e) => setCloseWeekMessage(e.target.value)}
                 />
-                <Button size="sm" className="self-start" onClick={handleClose} disabled={closing}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="self-start"
+                  onClick={handleClose}
+                  disabled={closing || closeWeekMessage.trim() === ""}
+                >
                   {closing ? "Closing…" : "Close Week"}
                 </Button>
               </div>
