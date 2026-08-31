@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { SlateBuilder } from "@/components/commish/SlateBuilder";
+import { ResultsStandingsPreview } from "@/components/commish/ResultsStandingsPreview";
 import { WeekCloseControl } from "@/components/commish/WeekCloseControl";
 import { PickTracker } from "@/components/commish/PickTracker";
 import { PostComposer } from "@/components/composer/PostComposer";
@@ -88,6 +89,8 @@ export default function CommishPage() {
           )}
         </CardContent>
       </Card>
+
+      <ResultsStandingsPreview />
 
       <WeekCloseControl />
 
