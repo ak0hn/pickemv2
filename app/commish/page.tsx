@@ -5,17 +5,15 @@ import { useDev } from "@/lib/dev/DevProvider";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { SlateBuilder } from "@/components/commish/SlateBuilder";
-import { ResultsStandingsPreview } from "@/components/commish/ResultsStandingsPreview";
+import { WeekControlTile } from "@/components/commish/WeekControlTile";
 import { PickTracker } from "@/components/commish/PickTracker";
 import { PostComposer } from "@/components/composer/PostComposer";
 import { createFreeformPost } from "@/lib/posts/actions";
 
-// Aug 31, 2026 (Alex's live spot-check on PR #7): the Monday Night Tiebreaker toggle and
-// Close Week now render inside ResultsStandingsPreview itself, not as separate cards here
-// — "that's the object you're closing." ResultsStandingsPreview also moved up, directly
-// after SlateBuilder, so once a week's games are done, results are the prominent view
-// instead of sitting further down the page.
+// Aug 31, 2026 (Alex's live spot-check, third pass on PIC-24/PR #7): SlateBuilder,
+// ResultsStandingsPreview, and WeekCloseControl collapsed into one WeekControlTile — two
+// tiles both claiming to represent "Week 1" was the actual bug. See WeekControlTile.tsx
+// for the four-state model (draft / published / complete / closed).
 export default function CommishPage() {
   const { persona } = useDev();
   const [composerOpen, setComposerOpen] = useState(false);
@@ -39,9 +37,7 @@ export default function CommishPage() {
     <div className="flex flex-col gap-4">
       <h1 className="font-display text-lg text-foreground">Commish Tools</h1>
 
-      <SlateBuilder />
-
-      <ResultsStandingsPreview />
+      <WeekControlTile />
 
       <Card>
         <CardHeader>

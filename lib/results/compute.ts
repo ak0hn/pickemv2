@@ -27,7 +27,7 @@ export async function computeWeekResults(weekId: string): Promise<WeekResults> {
 
   const { data: games, error: gamesErr } = await supabase
     .from("games")
-    .select("away_team, home_team, spread, kickoff_at, status, home_score, away_score")
+    .select("id, away_team, home_team, spread, kickoff_at, status, home_score, away_score")
     .eq("week_id", weekId)
     .neq("status", "voided")
     .order("kickoff_at", { ascending: true });
@@ -106,5 +106,38 @@ export async function computeWeekResults(weekId: string): Promise<WeekResults> {
   }
   const standings = [...byRoster.values()].sort((a, b) => b.wins - a.wins || a.losses - b.losses);
 
-  return { weekNumber: week.week_number, games: gameRows, standings };
+  // Weekly winners (Aug 31, 2026): who went 6/6 on THIS week's own picks specifically —
+  // a different question from `standings`, which is season-to-date cumulative. Reuses
+  // the same finalGames/pick data above, just scoped down to this week's own game ids
+  // rather than every final game system-wide.
+  const thisWeekGameIds = new Set((games ?? []).map((g) => g.id));
+  const thisWeekFinalGames = (finalGames ?? []).filter((g) => thisWeekGameIds.has(g.id));
+  const weeklyCorrectCount = new Map<string, number>();
+  for (const r of roster ?? []) {
+    let correct = 0;
+    for (const g of thisWeekFinalGames) {
+      if (g.home_score === null || g.away_score === null) continue;
+      const margin = g.home_score - g.away_score + (g.spread ?? 0);
+      const pick = pickByRosterAndGame.get(`${r.id}|${g.id}`);
+      if (!pick || pick.pick_value === null) continue;
+      const isCorrect =
+        pick.pick_status === "scored"
+          ? (pick.is_correct ?? false)
+          : pick.pick_value === g.home_team
+            ? margin > 0
+            : pick.pick_value === g.away_team
+              ? margin < 0
+              : false;
+      if (isCorrect) correct++;
+    }
+    weeklyCorrectCount.set(r.id, correct);
+  }
+  // 6/6 is the league's fixed weekly pick count (WP2) — a perfect week, not merely the
+  // highest score that week (Confirmed Mechanics: ties all stay co-winners without a
+  // tiebreaker; nobody "wins" a week going 5/6).
+  const weeklyWinners = (roster ?? [])
+    .filter((r) => weeklyCorrectCount.get(r.id) === 6)
+    .map((r) => r.display_name ?? "Unknown");
+
+  return { weekNumber: week.week_number, games: gameRows, standings, weeklyWinners };
 }
