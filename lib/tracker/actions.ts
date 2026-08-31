@@ -9,10 +9,10 @@ import type { TrackerData } from "@/lib/tracker/types";
 // Live updates after this point come from the browser client's own Realtime subscription
 // on public.picks — this action is only the first paint and the retry-on-error path.
 //
-// Reuses getActiveSlate() for the week+games half rather than re-querying — that
-// function's own comment already flags every other single-active-week query needing to
-// reference the same ACTIVE_WEEK_NUMBER constant instead of re-deriving it independently
-// (E4 finding: this action originally duplicated that query verbatim).
+// Reuses getActiveSlate() for the week+games half rather than re-querying — every
+// single-active-week query resolves through getActiveWeekNumber() (PIC-30) instead of
+// re-deriving "which week is active" independently (E4 finding: this action originally
+// duplicated that query verbatim).
 export async function getPickTrackerAction(): Promise<TrackerData | null> {
   const slate = await getActiveSlate();
   if (!slate) return null;
