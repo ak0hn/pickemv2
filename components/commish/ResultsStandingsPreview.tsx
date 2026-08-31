@@ -4,21 +4,37 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { useDev } from "@/lib/dev/DevProvider";
+import { getWeekPhase } from "@/lib/mock/data";
 import { getCloseableWeekAction } from "@/lib/slate/actions";
 import { computeWeekResults } from "@/lib/results/compute";
+import { formatHomeSpread } from "@/lib/slate/format";
+import { WeekCloseControl } from "@/components/commish/WeekCloseControl";
 import type { WeekResults } from "@/lib/results/types";
 
 type LoadState = "loading" | "empty" | "loaded" | "error";
 
-// PIC-24: read-only preview of this week's results and league standings, decoupled from
-// the Close Week action — the commissioner needs this to decide on a tiebreaker and draft
-// the close-week message *before* committing to close, not only after (Alex, Aug 30,
-// 2026: "end of the current cycle's last game makes results/standings viewable, but the
-// official close + week transition always waits on the commissioner's own post"). Reuses
-// computeWeekResults (lib/results/compute.ts) directly — never calls week_close(), never
-// creates a post, safe to load any number of times. No automated posting of any kind;
-// this is purely something the commissioner looks at.
+// PIC-24: read-only preview of this week's results, decoupled from the Close Week action —
+// the commissioner needs this to decide on a tiebreaker and draft the close-week message
+// *before* committing to close, not only after (Alex, Aug 30, 2026: "end of the current
+// cycle's last game makes results/standings viewable, but the official close + week
+// transition always waits on the commissioner's own post"). Reuses computeWeekResults
+// (lib/results/compute.ts) directly — never calls week_close(), never creates a post, safe
+// to load any number of times. No automated posting of any kind; this is purely something
+// the commissioner looks at.
+//
+// Revised Aug 31, 2026 (Alex's live spot-check on PR #7): season standings removed from
+// this card — that's the League page's job (PIC-27), not a per-week commish tool. The
+// Monday Night Tiebreaker toggle and the Close Week action now render inside this same
+// card, below the results, instead of as separate cards further down the page — "that's
+// the object you're closing." Each result row now also shows the actual spread, not just
+// which side covered, so the commish can sanity-check the call against a real number.
 export function ResultsStandingsPreview() {
+  const { now, tiebreakerInvoked, setTiebreakerInvoked } = useDev();
+  const phase = getWeekPhase(0, now, tiebreakerInvoked);
+  const readyForTiebreaker = phase === "awaiting-tiebreaker" || phase === "tiebreaker-open";
   const [results, setResults] = useState<WeekResults | null>(null);
   const [state, setState] = useState<LoadState>("loading");
 
@@ -97,9 +113,12 @@ export function ResultsStandingsPreview() {
           <div className="flex flex-col gap-1.5">
             {finalGames.map((g) => (
               <div key={`${g.away}-${g.home}`} className="flex items-center justify-between text-sm">
-                <span>
-                  {g.away} @ {g.home}
-                </span>
+                <div className="flex flex-col">
+                  <span>
+                    {g.away} @ {g.home}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{formatHomeSpread(g.spread)}</span>
+                </div>
                 <Badge variant={g.winner === "push" ? "outline" : "secondary"}>
                   {g.winner === "push" ? "Push" : g.winner === "home" ? `${g.home} covered` : `${g.away} covered`}
                 </Badge>
@@ -108,26 +127,30 @@ export function ResultsStandingsPreview() {
           </div>
         )}
 
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium text-muted-foreground">Season Standings</p>
-          {data.standings.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No standings yet.</p>
-          ) : (
-            <ol className="flex flex-col gap-0.5">
-              {data.standings.map((s, i) => (
-                <li key={s.rosterId} className="flex items-center justify-between text-sm">
-                  <span>
-                    {i + 1}. {s.name}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {s.wins}-{s.losses}
-                    {s.pushes > 0 ? `-${s.pushes}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
+        <Separator />
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm">Invoke tiebreaker for this week</p>
+            <p className="text-xs text-muted-foreground">
+              {readyForTiebreaker
+                ? "Sunday's games are final — you can open this now."
+                : "Available once Sunday's games are final."}
+            </p>
+          </div>
+          <Switch
+            checked={tiebreakerInvoked}
+            disabled={!readyForTiebreaker}
+            onCheckedChange={setTiebreakerInvoked}
+          />
         </div>
+        {!tiebreakerInvoked && phase === "week-complete" && (
+          <p className="-mt-2 text-xs text-muted-foreground">
+            Not invoked this week — all 6/6 GMs stay co-winners.
+          </p>
+        )}
+
+        <WeekCloseControl />
       </CardContent>
     </Card>
   );

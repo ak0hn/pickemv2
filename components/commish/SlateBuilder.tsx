@@ -39,6 +39,7 @@ export function SlateBuilder() {
   const [openWeekBlock, setOpenWeekBlock] = useState<OpenWeekBlock | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [buildingBlock, setBuildingBlock] = useState(false);
+  const [showPublishedLines, setShowPublishedLines] = useState(false);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -195,7 +196,25 @@ export function SlateBuilder() {
             </p>
           )}
 
+          {/* Aug 31, 2026 (Alex's live spot-check on PR #7): once published, the full
+              per-game row list is redundant here — the commish sees matchups/spreads on
+              the Picks page like everyone else. Editing a published spread is still a
+              real, occasional action, so keep it reachable via an explicit "Edit lines"
+              toggle rather than removing the editor entirely. */}
+          {state === "loaded" && data.week.state !== "draft" && !showPublishedLines && (
+            <div className="flex items-center justify-between text-sm">
+              <p className="text-muted-foreground">
+                {data.games.length} game{data.games.length === 1 ? "" : "s"} published — view
+                matchups and spreads on the Picks page.
+              </p>
+              <Button size="sm" variant="ghost" onClick={() => setShowPublishedLines(true)}>
+                Edit lines
+              </Button>
+            </div>
+          )}
+
           {state === "loaded" &&
+            (data.week.state === "draft" || showPublishedLines) &&
             data.games.map((g) => (
               <button
                 key={g.id}

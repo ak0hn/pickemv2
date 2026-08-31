@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getCloseableWeekAction } from "@/lib/slate/actions";
 import { buildCloseWeekBlock, closeWeekWithPost } from "@/lib/posts/actions";
@@ -12,9 +11,10 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 
 // CT18: closing the week is coupled to the results announcement post — same pattern as
 // SlateBuilder's "Publish week", per the e2e illustration doc (real manual process treats
-// closing + announcing results as one commish action, not two). Kept as its own component
-// rather than folded into SlateBuilder since it's a distinct lifecycle action, not slate
-// editing — mirrors the separate "Monday Night Tiebreaker" card already on this page.
+// closing + announcing results as one commish action, not two). Renders inline (no own
+// Card) — lives inside ResultsStandingsPreview's card per Alex's Aug 31 feedback: "that's
+// the object you're closing," so the action belongs attached to the results it acts on,
+// not a separate card below them.
 export function WeekCloseControl() {
   const [week, setWeek] = useState<{ id: string; state: string } | null>(null);
   const [state, setState] = useState<LoadState>("loading");
@@ -72,13 +72,9 @@ export function WeekCloseControl() {
 
   if (state === "error") {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-sm text-destructive" role="alert">
-            Couldn&apos;t load week status. Check your connection and try again.
-          </p>
-        </CardContent>
-      </Card>
+      <p className="text-sm text-destructive" role="alert">
+        Couldn&apos;t load week status. Check your connection and try again.
+      </p>
     );
   }
 
@@ -87,24 +83,19 @@ export function WeekCloseControl() {
   if (state === "empty" || !week || week.state === "draft") return null;
 
   return (
-    <Card>
-      <CardHeader>
-        <p className="text-sm font-medium">Close Week</p>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {week.state === "closed" ? (
-          <p className="text-sm text-muted-foreground">Week closed — results posted.</p>
-        ) : (
-          <Button size="sm" className="self-start" onClick={handleOpenComposer} disabled={buildingBlock}>
-            {buildingBlock ? "Preparing…" : "Close Week"}
-          </Button>
-        )}
-        {errorMessage && (
-          <p className="text-sm text-destructive" role="alert">
-            {errorMessage}
-          </p>
-        )}
-      </CardContent>
+    <div className="flex flex-col gap-2">
+      {week.state === "closed" ? (
+        <p className="text-sm text-muted-foreground">Week closed — results posted.</p>
+      ) : (
+        <Button size="sm" className="self-start" onClick={handleOpenComposer} disabled={buildingBlock}>
+          {buildingBlock ? "Preparing…" : "Close Week"}
+        </Button>
+      )}
+      {errorMessage && (
+        <p className="text-sm text-destructive" role="alert">
+          {errorMessage}
+        </p>
+      )}
 
       <PostComposer
         open={composerOpen}
@@ -113,6 +104,6 @@ export function WeekCloseControl() {
         block={closeWeekBlock}
         onConfirm={handleConfirmCloseWeekPost}
       />
-    </Card>
+    </div>
   );
 }
