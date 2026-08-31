@@ -77,16 +77,25 @@ function coveringTeam(g) {
   return margin > 0 ? g.home_team : g.away_team;
 }
 
+// E4 finding: computed once, up front — if the intended winner can't actually reach 6/6
+// (too many push games this week), fail loudly here rather than let chosen.length < 6
+// silently produce a no-winner week despite --all-correct being set.
+const nonPushGames = games.filter((g) => coveringTeam(g) !== null);
+if (allCorrectEmail !== null && nonPushGames.length < 6) {
+  console.error(
+    `Only ${nonPushGames.length} non-push games this week — can't guarantee a 6/6 winner. ` +
+      `Re-run seed-dev-results.mjs to reroll scores, then try again.`,
+  );
+  process.exit(1);
+}
+
 for (const person of roster) {
   const isWinner = allCorrectEmail !== null && person.email === allCorrectEmail;
 
   // Prefer non-push games so a genuine 6/6 is achievable for the winner; anyone else just
   // takes the first 6 in kickoff order.
-  const eligible = isWinner ? games.filter((g) => coveringTeam(g) !== null) : games;
+  const eligible = isWinner ? nonPushGames : games;
   const chosen = eligible.slice(0, 6);
-  if (isWinner && chosen.length < 6) {
-    console.warn(`Only ${chosen.length} non-push games available for a guaranteed 6/6 — using what's there.`);
-  }
 
   const rows = chosen.map((g, i) => {
     const cover = coveringTeam(g);
@@ -99,7 +108,11 @@ for (const person of roster) {
     } else {
       pickValue = cover ?? g.home_team; // game not final yet — any valid team value
     }
-    const isCorrect = g.status === "final" ? pickValue === cover : null;
+    // E4 finding: a push (cover === null) must stay is_correct = null — neither side
+    // covers, so it's excluded from scoring, not a loss. Previously fell through to
+    // `pickValue === cover` (=== null), which evaluated to false and made a push read as
+    // an active wrong pick for anyone not deliberately failing game 0.
+    const isCorrect = g.status !== "final" ? null : cover === null ? null : pickValue === cover;
     return {
       roster_id: person.id,
       game_id: g.id,

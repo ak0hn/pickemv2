@@ -265,7 +265,10 @@ export function WeekControlTile() {
   // once every non-voided game has a spread — no new field to keep in sync.
   const nonVoidedGames = data.games.filter((g) => g.status !== "voided");
   const allSpreadsSet = nonVoidedGames.length > 0 && nonVoidedGames.every((g) => g.spread !== null);
-  const isPending = isDraftLike && !allSpreadsSet;
+  // E4 finding: guard nonVoidedGames.length > 0 explicitly — without it, a week with no
+  // valid games (everything voided, or schedule not seeded yet) read as "Pending" (waiting
+  // on spreads), which is misleading for "no games to price at all."
+  const isPending = isDraftLike && nonVoidedGames.length > 0 && !allSpreadsSet;
 
   return (
     <>
