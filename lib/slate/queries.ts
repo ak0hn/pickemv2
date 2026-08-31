@@ -1,20 +1,38 @@
 import { createClient } from "@/lib/supabase/server";
 import type { SlateData } from "@/lib/slate/types";
 
-// PIC-10 works against a single active draft week (week 1) — real season-schedule
-// seeding across all weeks is out of scope here; see the seed migration. Exported so
-// every other single-active-week query (e.g. WeekCloseControl's) references this one
-// constant instead of re-hardcoding the literal — flagged in PIC-12's review as a real
-// risk once week navigation arrives and this needs to change in more than one place.
-export const ACTIVE_WEEK_NUMBER = 1;
+// PIC-30: resolves to the lowest-numbered week that isn't closed yet — weeks close in
+// sequence (CT18/week.close), so this is always "the week currently being played,"
+// without a hardcoded number. Replaces the old ACTIVE_WEEK_NUMBER=1 constant from PIC-10,
+// which deliberately deferred real week-to-week advancement (flagged in PIC-12's review as
+// a real risk "once week navigation arrives" — it arrived, via live 2-week E2E testing).
+// Every single-active-week query (Slate/Close-Week tile, pick tracker, Picks page once
+// built) should call this rather than re-deriving "which week is active" independently.
+// Returns null once every seeded week is closed (end of season) — same "nothing to show"
+// handling every caller already has for a missing week, not a new error path.
+export async function getActiveWeekNumber(): Promise<number | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("weeks")
+    .select("week_number")
+    .neq("state", "closed")
+    .order("week_number", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.week_number;
+}
 
 export async function getActiveSlate(): Promise<SlateData | null> {
   const supabase = await createClient();
 
+  const weekNumber = await getActiveWeekNumber();
+  if (weekNumber === null) return null;
+
   const { data: week, error: weekErr } = await supabase
     .from("weeks")
     .select("id, week_number, state, closed_at")
-    .eq("week_number", ACTIVE_WEEK_NUMBER)
+    .eq("week_number", weekNumber)
     .maybeSingle();
 
   if (weekErr || !week) return null;

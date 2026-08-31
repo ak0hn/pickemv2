@@ -60,11 +60,9 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 //               results (spread shown explicitly, not just which side covered), this
 //               week's 6/6 winner(s) with click-to-copy, the (mock, dev-only) tiebreaker
 //               toggle, and an inline "close week" message box + action.
-// 4. closed   — same view as (1), for whatever the "active" week is next. Known
-//               limitation: `ACTIVE_WEEK_NUMBER` (lib/slate/queries.ts) is hardcoded to 1 —
-//               real week-to-week advancement doesn't exist yet (flagged there already,
-//               out of scope here), so this state renders correctly but against the same
-//               single active week, not a genuinely different "next" week's data yet.
+// 4. closed   — same view as (1), for whatever the "active" week is next. Genuinely the
+//               next week now (PIC-30) — the active week resolves dynamically to the
+//               lowest-numbered non-closed week, not a hardcoded constant.
 export function WeekControlTile() {
   const { tiebreakerInvoked, setTiebreakerInvoked, now } = useDev();
 
@@ -260,6 +258,14 @@ export function WeekControlTile() {
 
   const isComplete = results !== null;
   const isDraftLike = data.week.state === "draft" || data.week.state === "closed";
+  // PIC-30 (Aug 31, 2026): "Pending" vs "Draft" is a computed label, not a stored week
+  // state — real sportsbook lines aren't posted until Tuesday of game week at the
+  // earliest, so a week that's just transitioned in (matchups known, no spreads yet)
+  // reads as genuinely different from one actively being priced. Flips automatically
+  // once every non-voided game has a spread — no new field to keep in sync.
+  const nonVoidedGames = data.games.filter((g) => g.status !== "voided");
+  const allSpreadsSet = nonVoidedGames.length > 0 && nonVoidedGames.every((g) => g.spread !== null);
+  const isPending = isDraftLike && !allSpreadsSet;
 
   return (
     <>
@@ -271,7 +277,7 @@ export function WeekControlTile() {
               : `Week ${data.week.week_number} lines`}
           </p>
           <Badge variant={isDraftLike ? "outline" : isComplete ? "secondary" : "default"}>
-            {isComplete ? "Complete" : isDraftLike ? "Draft" : "Live"}
+            {isComplete ? "Complete" : isPending ? "Pending" : isDraftLike ? "Draft" : "Live"}
           </Badge>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

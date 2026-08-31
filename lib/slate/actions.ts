@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveSlate, ACTIVE_WEEK_NUMBER } from "@/lib/slate/queries";
+import { getActiveSlate, getActiveWeekNumber } from "@/lib/slate/queries";
 
 // Thin server-action wrapper so the (client-rendered) Slate Builder can fetch/refetch
 // without a page-level Server Component split — this app's commish page is already
@@ -11,16 +11,19 @@ export async function getActiveSlateAction() {
   return getActiveSlate();
 }
 
-// Same single-active-week scope as getActiveSlate (PIC-10's note applies here too — real
-// season navigation across weeks is out of scope until later). Returns null when there's
-// no week to show a Close Week control for at all (still draft) — WeekCloseControl treats
-// that as "render nothing," not an error.
+// PIC-30: resolves the active week dynamically via getActiveWeekNumber() rather than
+// re-deriving "which week is active" independently (that duplication was flagged back in
+// PIC-12's review for the old hardcoded constant). Returns null when there's no active
+// week to show a Close Week control for at all — the tile treats that as "render nothing,"
+// not an error.
 export async function getCloseableWeekAction(): Promise<{ id: string; state: string } | null> {
   const supabase = await createClient();
+  const weekNumber = await getActiveWeekNumber();
+  if (weekNumber === null) return null;
   const { data, error } = await supabase
     .from("weeks")
     .select("id, state")
-    .eq("week_number", ACTIVE_WEEK_NUMBER)
+    .eq("week_number", weekNumber)
     .maybeSingle();
   if (error || !data) return null;
   return data;
