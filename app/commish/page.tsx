@@ -2,22 +2,21 @@
 
 import { useState } from "react";
 import { useDev } from "@/lib/dev/DevProvider";
-import { getWeekPhase } from "@/lib/mock/data";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { SlateBuilder } from "@/components/commish/SlateBuilder";
-import { WeekCloseControl } from "@/components/commish/WeekCloseControl";
+import { WeekControlTile } from "@/components/commish/WeekControlTile";
 import { PickTracker } from "@/components/commish/PickTracker";
 import { PostComposer } from "@/components/composer/PostComposer";
 import { createFreeformPost } from "@/lib/posts/actions";
 
+// Aug 31, 2026 (Alex's live spot-check, third pass on PIC-24/PR #7): SlateBuilder,
+// ResultsStandingsPreview, and WeekCloseControl collapsed into one WeekControlTile — two
+// tiles both claiming to represent "Week 1" was the actual bug. See WeekControlTile.tsx
+// for the four-state model (draft / published / complete / closed).
 export default function CommishPage() {
-  const { now, persona, tiebreakerInvoked, setTiebreakerInvoked } = useDev();
-  const [weekOffset] = useState(0);
+  const { persona } = useDev();
   const [composerOpen, setComposerOpen] = useState(false);
-  const phase = getWeekPhase(weekOffset, now, tiebreakerInvoked);
 
   async function handleFreeformPost(message: string, imageUrl: string | null) {
     await createFreeformPost({ message, imageUrl });
@@ -34,13 +33,11 @@ export default function CommishPage() {
     );
   }
 
-  const readyForTiebreaker = phase === "awaiting-tiebreaker" || phase === "tiebreaker-open";
-
   return (
     <div className="flex flex-col gap-4">
       <h1 className="font-display text-lg text-foreground">Commish Tools</h1>
 
-      <SlateBuilder />
+      <WeekControlTile />
 
       <Card>
         <CardHeader>
@@ -60,36 +57,6 @@ export default function CommishPage() {
         block={null}
         onConfirm={handleFreeformPost}
       />
-
-      <Card>
-        <CardHeader>
-          <p className="text-sm font-medium">Monday Night Tiebreaker</p>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm">Invoke tiebreaker for this week</p>
-              <p className="text-xs text-muted-foreground">
-                {readyForTiebreaker
-                  ? "Sunday's games are final — you can open this now."
-                  : "Available once Sunday's games are final."}
-              </p>
-            </div>
-            <Switch
-              checked={tiebreakerInvoked}
-              disabled={!readyForTiebreaker}
-              onCheckedChange={setTiebreakerInvoked}
-            />
-          </div>
-          {!tiebreakerInvoked && phase === "week-complete" && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Not invoked this week — all 6/6 GMs stay co-winners.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <WeekCloseControl />
 
       <Separator />
 
