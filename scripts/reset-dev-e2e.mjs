@@ -52,9 +52,20 @@ for (const week of weeks) {
     const { error: pickErr } = await admin.from("picks").delete().in("game_id", gameIds);
     if (pickErr) console.error(`Week ${week.week_number}: couldn't clear picks:`, pickErr.message);
 
+    // Two steps, in this order, not one combined update: a DB trigger
+    // (enforce_no_spread_edit_after_final, supabase/migrations/00000000000001_foundation.sql)
+    // blocks changing `spread` on any row whose CURRENT status is 'final' — even when the
+    // same statement also sets status away from 'final'. Clear status/scores first so the
+    // row is no longer 'final' by the time the second update touches spread.
+    const { error: statusResetErr } = await admin
+      .from("games")
+      .update({ status: "scheduled", home_score: null, away_score: null })
+      .in("id", gameIds);
+    if (statusResetErr) console.error(`Week ${week.week_number}: couldn't reset game status:`, statusResetErr.message);
+
     const { error: gameResetErr } = await admin
       .from("games")
-      .update({ spread: null, status: "scheduled", home_score: null, away_score: null })
+      .update({ spread: null })
       .in("id", gameIds);
     if (gameResetErr) console.error(`Week ${week.week_number}: couldn't reset games:`, gameResetErr.message);
   }
