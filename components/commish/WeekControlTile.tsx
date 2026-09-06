@@ -38,6 +38,7 @@ import {
   closeWeekWithPost,
 } from "@/lib/posts/actions";
 import { computeWeekResults } from "@/lib/results/compute";
+import { devSeedSpreadsOnly } from "@/lib/dev/dev-test-data-actions";
 import type { SlateData, SlateGame } from "@/lib/slate/types";
 import type { WeekResults } from "@/lib/results/types";
 
@@ -64,7 +65,7 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 //               next week now (PIC-30) — the active week resolves dynamically to the
 //               lowest-numbered non-closed week, not a hardcoded constant.
 export function WeekControlTile() {
-  const { tiebreakerInvoked, setTiebreakerInvoked, now } = useDev();
+  const { tiebreakerInvoked, setTiebreakerInvoked, now, isDev } = useDev();
 
   const [data, setData] = useState<SlateData | null>(null);
   const [state, setState] = useState<LoadState>("loading");
@@ -77,6 +78,7 @@ export function WeekControlTile() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [checkingEdit, setCheckingEdit] = useState(false);
 
+  const [pullingSpreads, setPullingSpreads] = useState(false);
   const [openWeekMessage, setOpenWeekMessage] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [closeWeekMessage, setCloseWeekMessage] = useState("");
@@ -157,6 +159,20 @@ export function WeekControlTile() {
   // message box lives directly on this tile instead, since the slate is already fully
   // visible right above it (Alex's call; this narrows the shared composer's remaining
   // scope to freeform + eventually open_tiebreaker).
+  async function handlePullSpreads() {
+    if (!data) return;
+    setErrorMessage(null);
+    setPullingSpreads(true);
+    try {
+      await devSeedSpreadsOnly(data.week.week_number);
+      await load();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Couldn't pull spreads.");
+    } finally {
+      setPullingSpreads(false);
+    }
+  }
+
   async function handlePublish() {
     // A message is required to open the week — the button is already disabled on an empty
     // message, but guard here too rather than trust the disabled state alone.
@@ -323,15 +339,25 @@ export function WeekControlTile() {
                 <>
                   <Separator />
                   <div className="flex flex-col gap-3">
-                    {/* CT1: draft/closed only — once live, don't re-pull; edits are manual. */}
+                    {/* CT1: draft/closed only — once live, don't re-pull; edits are manual.
+                        In dev/preview builds this fills placeholder spreads (isDev, via
+                        DevProvider) so the open-week flow can be tested without hand-typing
+                        every game — real production stays disabled until Epic 7 wires an
+                        actual Odds API pull; isDev defaults false until confirmed, so this
+                        fails closed rather than briefly rendering enabled. */}
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled
+                      disabled={!isDev || pullingSpreads}
                       className="self-start"
-                      title="Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
+                      onClick={isDev ? handlePullSpreads : undefined}
+                      title={
+                        isDev
+                          ? "Dev-only: fills placeholder spreads for testing — Epic 7 will replace this with a real Odds API pull"
+                          : "Automated Odds API pull arrives in Epic 7 — manual entry is the path for now"
+                      }
                     >
-                      Pull spreads from Odds API
+                      {pullingSpreads ? "Pulling…" : "Pull spreads from Odds API"}
                     </Button>
 
                     <div className="flex flex-col gap-2">

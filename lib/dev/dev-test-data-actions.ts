@@ -17,6 +17,14 @@ function assertDevOnly() {
   }
 }
 
+// Lets client components decide whether to render a dev-only affordance (e.g. the commish
+// tile's placeholder "pull spreads" button) as enabled. Read-only and safe to call from
+// any environment — the actual dev actions still self-gate via assertDevOnly() regardless
+// of what a client checked first.
+export async function isDevEnvironment() {
+  return process.env.VERCEL_ENV !== "production";
+}
+
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,12 +38,9 @@ function adminClient() {
 
 const POSSIBLE_SPREADS = [-13.5, -10.5, -7.5, -6.5, -5.5, -4.5, -3, -2.5, -1.5, -1, 1, 1.5, 2.5, 3, 4.5];
 
-// Mirrors seed-dev-spreads.mjs + seed-dev-results.mjs combined: fills in any missing
-// spreads, then marks every non-voided game in the given week final with a plausible
-// score — one action to get straight to the "complete" tile state.
-export async function devSeedWeekComplete(weekNumber?: number) {
-  assertDevOnly();
-  const admin = adminClient();
+// Returns the week row + its non-voided games for a target week (defaults to the active
+// week) — shared lookup used by every seed/reset action below.
+async function loadWeekAndGames(admin: ReturnType<typeof adminClient>, weekNumber?: number) {
   const targetWeek = weekNumber ?? (await getActiveWeekNumber());
   if (targetWeek === null) throw new Error("No active week to seed.");
 
@@ -53,7 +58,21 @@ export async function devSeedWeekComplete(weekNumber?: number) {
     .neq("status", "voided");
   if (gamesErr) throw new Error(`Couldn't load games: ${gamesErr.message}`);
 
-  for (const g of games ?? []) {
+  return { week, weekNumber: targetWeek, games: games ?? [] };
+}
+
+// Fills in any missing spreads with a plausible placeholder value — leaves game status/
+// scores untouched, so the week stays open for the real Publish flow to be exercised
+// (unlike devSeedWeekComplete, which jumps straight past that to "final"). Wired to the
+// commish tile's "Pull spreads" button in dev/preview builds only — Epic 7 replaces this
+// with a real Odds API pull; this is a placeholder for testing the open-week flow before
+// that exists, not a preview of the real feature's behavior.
+export async function devSeedSpreadsOnly(weekNumber?: number) {
+  assertDevOnly();
+  const admin = adminClient();
+  const { games } = await loadWeekAndGames(admin, weekNumber);
+
+  for (const g of games) {
     if (g.spread === null) {
       const spread = POSSIBLE_SPREADS[Math.floor(Math.random() * POSSIBLE_SPREADS.length)];
       const { error } = await admin.from("games").update({ spread }).eq("id", g.id);
@@ -61,7 +80,19 @@ export async function devSeedWeekComplete(weekNumber?: number) {
     }
   }
 
-  for (const g of games ?? []) {
+  revalidatePath("/commish");
+}
+
+// Mirrors seed-dev-spreads.mjs + seed-dev-results.mjs combined: fills in any missing
+// spreads, then marks every non-voided game in the given week final with a plausible
+// score — one action to get straight to the "complete" tile state.
+export async function devSeedWeekComplete(weekNumber?: number) {
+  assertDevOnly();
+  const admin = adminClient();
+  const { weekNumber: targetWeek, games } = await loadWeekAndGames(admin, weekNumber);
+  await devSeedSpreadsOnly(targetWeek);
+
+  for (const g of games) {
     const homeScore = Math.floor(Math.random() * 21) + 10;
     const awayScore = Math.floor(Math.random() * 21) + 10;
     const { error } = await admin

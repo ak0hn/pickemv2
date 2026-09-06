@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { MOCK_GMS } from "@/lib/mock/data";
 import { MockGM } from "@/lib/mock/types";
 import { devSignInAs } from "@/lib/dev/dev-auth-actions";
+import { isDevEnvironment } from "@/lib/dev/dev-test-data-actions";
 
 interface DevContextValue {
   now: Date;
@@ -16,6 +17,9 @@ interface DevContextValue {
   personas: MockGM[];
   tiebreakerInvoked: boolean;
   setTiebreakerInvoked: (v: boolean) => void;
+  // Defaults false until confirmed — any dev-only affordance gated on this should fail
+  // closed (disabled) rather than briefly flash enabled before the check resolves.
+  isDev: boolean;
 }
 
 const DevContext = createContext<DevContextValue | null>(null);
@@ -27,6 +31,13 @@ export function DevProvider({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<Date | null>(null);
   const [personaId, setPersonaIdState] = useState<string>(MOCK_GMS[0].id);
   const [tiebreakerInvoked, setTiebreakerInvoked] = useState(false);
+  const [isDev, setIsDev] = useState(false);
+
+  useEffect(() => {
+    isDevEnvironment()
+      .then(setIsDev)
+      .catch(() => setIsDev(false));
+  }, []);
 
   useEffect(() => {
     // Hydration-safe read: localStorage doesn't exist on the server, so this must
@@ -83,6 +94,7 @@ export function DevProvider({ children }: { children: ReactNode }) {
         personas: MOCK_GMS,
         tiebreakerInvoked,
         setTiebreakerInvoked,
+        isDev,
       }}
     >
       {children}
