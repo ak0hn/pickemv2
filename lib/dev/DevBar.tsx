@@ -21,11 +21,20 @@ const DAY = 24 * HOUR;
 const COMMISH_EMAIL = "dev-commish@pickemv2.test";
 const GM_EMAIL = "dev-gm@pickemv2.test";
 
-type BusyAction = "seed" | "picks-commish" | "picks-gm" | "picks-none" | "reset" | null;
+type BusyAction = "reset-week1" | "seed" | "picks-commish" | "picks-gm" | "picks-none" | "reset" | null;
 
 export function DevBar() {
-  const { now, nowOverride, resetNow, fastForward, persona, setPersonaId, personas } =
-    useDev();
+  const {
+    now,
+    nowOverride,
+    resetNow,
+    fastForward,
+    persona,
+    setPersonaId,
+    personas,
+    resetToWeek1Wednesday,
+    notifyDataChanged,
+  } = useDev();
   const [busy, setBusy] = useState<BusyAction>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -34,7 +43,8 @@ export function DevBar() {
     setMessage(null);
     try {
       await fn();
-      setMessage("Done — reload to see it.");
+      notifyDataChanged();
+      setMessage("Done.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -111,6 +121,16 @@ export function DevBar() {
             <div>
               <p className="mb-1 font-medium text-foreground">Test data</p>
               <div className="flex flex-col gap-1">
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={busy !== null}
+                  onClick={() => run("reset-week1", resetToWeek1Wednesday)}
+                >
+                  {busy === "reset-week1"
+                    ? "Resetting…"
+                    : "Reset to Week 1, Wed (pre-kickoff)"}
+                </Button>
                 <Button
                   size="sm"
                   variant="secondary"

@@ -53,7 +53,7 @@ async function loadWeekAndGames(admin: ReturnType<typeof adminClient>, weekNumbe
 
   const { data: games, error: gamesErr } = await admin
     .from("games")
-    .select("id, spread")
+    .select("id, spread, kickoff_at, status")
     .eq("week_id", week.id)
     .neq("status", "voided");
   if (gamesErr) throw new Error(`Couldn't load games: ${gamesErr.message}`);
@@ -104,6 +104,82 @@ export async function devSeedWeekComplete(weekNumber?: number) {
 
   revalidatePath("/commish");
   revalidatePath("/feed");
+}
+
+const GAME_DURATION_HOURS = 3;
+
+// Dev-only simulation of games "being played": marks any non-final, non-voided game in
+// the active week final (with a random plausible score) once the given clock time has
+// passed that game's kickoff + a fixed game duration. Only ever moves games forward
+// (never un-finalizes), so it's safe to call after every dev-clock step regardless of
+// increment size (+1h vs +1d land on the same result). There's no real "live" clock to
+// poll here — this is called directly from DevProvider each time the dev clock advances,
+// standing in for what Epic 7's real live-score integration will eventually do on its own.
+export async function devAutoResolveGames(nowIso: string) {
+  assertDevOnly();
+  const admin = adminClient();
+  const now = new Date(nowIso).getTime();
+
+  let games: Awaited<ReturnType<typeof loadWeekAndGames>>["games"];
+  try {
+    ({ games } = await loadWeekAndGames(admin));
+  } catch {
+    // No active week (e.g. every seeded week already closed) — nothing to resolve.
+    return { resolvedCount: 0 };
+  }
+
+  const due = games.filter((g) => {
+    if (g.status === "final") return false;
+    const endsAt = new Date(g.kickoff_at).getTime() + GAME_DURATION_HOURS * 60 * 60 * 1000;
+    return now >= endsAt;
+  });
+
+  for (const g of due) {
+    const homeScore = Math.floor(Math.random() * 21) + 10;
+    const awayScore = Math.floor(Math.random() * 21) + 10;
+    const { error } = await admin
+      .from("games")
+      .update({ status: "final", home_score: homeScore, away_score: awayScore })
+      .eq("id", g.id);
+    if (error) throw new Error(`Couldn't resolve game: ${error.message}`);
+  }
+
+  if (due.length > 0) {
+    revalidatePath("/commish");
+    revalidatePath("/feed");
+  }
+
+  return { resolvedCount: due.length };
+}
+
+// Combined reset for starting a full week-1 simulation from scratch: wipes weeks 1-3 back
+// to clean draft (devResetTestData), then returns the timestamp for "the Wednesday before
+// Week 1's earliest kickoff" so the caller can rewind the dev clock to it. Computed from
+// the actual seeded schedule rather than hardcoded, so it stays correct if the schedule
+// migration ever changes.
+export async function devResetToWeek1Start() {
+  assertDevOnly();
+  await devResetTestData(3);
+
+  const admin = adminClient();
+  const { data: week1, error: weekErr } = await admin
+    .from("weeks")
+    .select("id")
+    .eq("week_number", 1)
+    .single();
+  if (weekErr || !week1) throw new Error("Couldn't find Week 1.");
+
+  const { data: earliestGame, error: gameErr } = await admin
+    .from("games")
+    .select("kickoff_at")
+    .eq("week_id", week1.id)
+    .order("kickoff_at", { ascending: true })
+    .limit(1)
+    .single();
+  if (gameErr || !earliestGame) throw new Error("Couldn't find Week 1's earliest game.");
+
+  const wednesday = new Date(new Date(earliestGame.kickoff_at).getTime() - 24 * 60 * 60 * 1000);
+  return wednesday.toISOString();
 }
 
 function coveringTeam(g: { status: string; home_score: number | null; away_score: number | null; spread: number | null; home_team: string; away_team: string }) {

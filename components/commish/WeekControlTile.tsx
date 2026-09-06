@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -65,7 +65,7 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 //               next week now (PIC-30) — the active week resolves dynamically to the
 //               lowest-numbered non-closed week, not a hardcoded constant.
 export function WeekControlTile() {
-  const { tiebreakerInvoked, setTiebreakerInvoked, now, isDev } = useDev();
+  const { tiebreakerInvoked, setTiebreakerInvoked, now, isDev, clockTick } = useDev();
 
   const [data, setData] = useState<SlateData | null>(null);
   const [state, setState] = useState<LoadState>("loading");
@@ -85,8 +85,8 @@ export function WeekControlTile() {
   const [closing, setClosing] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const load = useCallback(async () => {
-    setState("loading");
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setState("loading");
     try {
       const slate = await getActiveSlateAction();
       if (!slate) {
@@ -112,6 +112,20 @@ export function WeekControlTile() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Reloads whenever the dev clock advances (DevProvider bumps clockTick only after its
+  // own auto-resolve check finishes), so a game crossing kickoff+3h shows up here without
+  // a manual refresh. Silent (no skeleton flash) — skips the very first tick, which fires
+  // alongside the mount effect above and would otherwise double-fetch on load.
+  const skippedFirstTick = useRef(false);
+  useEffect(() => {
+    if (!skippedFirstTick.current) {
+      skippedFirstTick.current = true;
+      return;
+    }
+    load({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clockTick]);
 
   // Kept from the original mock scaffold, dev-only — no real data behind this yet. The
   // real trigger is Epic 3's job (PIC-12's own ticket reserved this exact layout slot and
@@ -262,7 +276,7 @@ export function WeekControlTile() {
           <p className="text-sm text-destructive">
             Couldn&apos;t load the week. Check your connection and try again.
           </p>
-          <Button size="sm" variant="secondary" onClick={load}>
+          <Button size="sm" variant="secondary" onClick={() => load()}>
             Retry
           </Button>
         </CardContent>
