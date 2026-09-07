@@ -53,11 +53,17 @@ export async function computeWeekResults(weekId: string): Promise<WeekResults> {
   const { data: roster, error: rosterErr } = await supabase.from("roster").select("id, display_name");
   if (rosterErr) throw new Error(`Couldn't load roster: ${rosterErr.message}`);
 
-  const { data: finalGames, error: finalGamesErr } = await supabase
+  const { data: rawFinalGames, error: finalGamesErr } = await supabase
     .from("games")
-    .select("id, home_team, away_team, home_score, away_score, spread")
+    .select("id, home_team, away_team, home_score, away_score, spread, kickoff_at")
     .eq("status", "final");
   if (finalGamesErr) throw new Error(`Couldn't load results: ${finalGamesErr.message}`);
+  // MNF is never one of the 6 regular picks (Confirmed Mechanics) — without this filter,
+  // MNF finalizing would silently count as a "didn't pick" loss for every roster member in
+  // both season standings and weeklyWinners below, since nobody actually has a pick_value
+  // against it. Real bug, not hypothetical: found the same session this filter was added,
+  // via week_close()'s completeness gate blocking a close because it still counted MNF.
+  const finalGames = (rawFinalGames ?? []).filter((g) => !isMondayNightGame(g.kickoff_at));
 
   const { data: picks, error: picksErr } = await supabase
     .from("picks")
