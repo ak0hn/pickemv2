@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { formatKickoff } from "@/lib/results/format";
 import { computeWeekResults } from "@/lib/results/compute";
-import type { OpenWeekBlock, CloseWeekBlock } from "@/lib/posts/types";
+import type { OpenWeekBlock, CloseWeekBlock, Post } from "@/lib/posts/types";
 
 // Shared by every action here that needs "who is the signed-in commissioner" — was
 // duplicated three times before (flagged in PIC-11's E4 review).
@@ -134,6 +134,35 @@ export async function closeWeekWithPost(input: {
   revalidatePath("/commish");
   revalidatePath("/feed");
   return { ok: true };
+}
+
+export interface FeedPost extends Post {
+  authorName: string;
+}
+
+// PIC-31/NF7: every post, newest-first, no week filter and no pagination cursor for v1
+// (a single rolling feed — the past/future sub-navigation this originally had, NF8/NF9,
+// was retired Sep 7, 2026, see the PRD). Two separate queries + a Map join rather than an
+// embedded Supabase relation select — matches this codebase's existing pattern
+// (lib/results/compute.ts's roster/picks stitching), not a new join style.
+export async function getFeedPosts(): Promise<FeedPost[]> {
+  const supabase = await createClient();
+
+  const { data: posts, error: postsErr } = await supabase
+    .from("posts")
+    .select("id, author_roster_id, week_id, trigger, message, image_url, block_data, created_at")
+    .order("created_at", { ascending: false });
+  if (postsErr) throw new Error(`Couldn't load the feed: ${postsErr.message}`);
+
+  const { data: roster, error: rosterErr } = await supabase.from("roster").select("id, display_name");
+  if (rosterErr) throw new Error(`Couldn't load the feed: ${rosterErr.message}`);
+
+  const nameByRosterId = new Map((roster ?? []).map((r) => [r.id, r.display_name ?? "Commissioner"]));
+
+  return (posts ?? []).map((p) => ({
+    ...p,
+    authorName: nameByRosterId.get(p.author_roster_id) ?? "Commissioner",
+  }));
 }
 
 // Free-form post — no block, no coupling to any other action. The only trigger type
