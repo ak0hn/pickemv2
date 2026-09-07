@@ -30,7 +30,12 @@ import {
 import { useDev } from "@/lib/dev/DevProvider";
 import { getWeekPhase } from "@/lib/mock/data";
 import { getActiveSlateAction, checkSpreadEditImpact, applySpreadEdit } from "@/lib/slate/actions";
-import { formatGameDay, formatKickoffTime, formatHomeSpread } from "@/lib/slate/format";
+import {
+  formatGameDay,
+  formatKickoffTime,
+  formatHomeSpread,
+  isMondayNightGame,
+} from "@/lib/slate/format";
 import {
   buildOpenWeekBlock,
   publishWeekWithPost,
@@ -64,7 +69,14 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 // 4. closed   — same view as (1), for whatever the "active" week is next. Genuinely the
 //               next week now (PIC-30) — the active week resolves dynamically to the
 //               lowest-numbered non-closed week, not a hardcoded constant.
-export function WeekControlTile() {
+interface WeekControlTileProps {
+  // Notified whenever the loaded week's live-ness changes, so the parent page can reorder
+  // itself around it (Alex's live E2E feedback, Sep 6/7 2026: once a week is live, the
+  // evergreen post card matters more than the slate and should move above it).
+  onWeekLiveChange?: (isLive: boolean) => void;
+}
+
+export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {}) {
   const { tiebreakerInvoked, setTiebreakerInvoked, now, isDev, clockTick } = useDev();
 
   const [data, setData] = useState<SlateData | null>(null);
@@ -79,6 +91,11 @@ export function WeekControlTile() {
   const [checkingEdit, setCheckingEdit] = useState(false);
 
   const [pullingSpreads, setPullingSpreads] = useState(false);
+  // Locked by default once the week is live — a published spread edit voids existing GM
+  // picks, so tapping a game row shouldn't open the edit sheet with no gate at all (Alex's
+  // live E2E feedback, Sep 6/7 2026). Draft-state editing stays ungated: nothing's public
+  // or picked yet, no risk to guard against.
+  const [linesUnlocked, setLinesUnlocked] = useState(false);
   const [openWeekMessage, setOpenWeekMessage] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [closeWeekMessage, setCloseWeekMessage] = useState("");
@@ -127,6 +144,19 @@ export function WeekControlTile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clockTick]);
 
+  // Re-lock whenever a different week loads (e.g. Close Week rolling into the next one) —
+  // an unlock decision made for one week's lines shouldn't silently carry over to another.
+  useEffect(() => {
+    setLinesUnlocked(false);
+  }, [data?.week.id]);
+
+  useEffect(() => {
+    if (!data) return;
+    const isDraftLikeWeek = data.week.state === "draft" || data.week.state === "closed";
+    onWeekLiveChange?.(!isDraftLikeWeek);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.week.id, data?.week.state]);
+
   // Kept from the original mock scaffold, dev-only — no real data behind this yet. The
   // real trigger is Epic 3's job (PIC-12's own ticket reserved this exact layout slot and
   // explicitly said "render nothing," not even a placeholder). Surfacing it as an obvious
@@ -159,6 +189,10 @@ export function WeekControlTile() {
       await applySpreadEdit(editGame.id, newSpread);
       setEditGame(null);
       setEditWarning(null);
+      // Re-lock after every save once live — each correction needs its own deliberate
+      // unlock (Alex's live E2E feedback, Sep 6/7 2026): a live spread edit voids existing
+      // GM picks, so leaving the tile unlocked risks the next accidental tap doing the same.
+      setLinesUnlocked(false);
       await load();
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Couldn't save the spread.");
@@ -171,8 +205,10 @@ export function WeekControlTile() {
 
   // Aug 31, 2026: no longer opens the shared Post Composer sheet for this trigger — the
   // message box lives directly on this tile instead, since the slate is already fully
-  // visible right above it (Alex's call; this narrows the shared composer's remaining
-  // scope to freeform + eventually open_tiebreaker).
+  // visible right above it (Alex's call). Sep 6/7, 2026: freeform posting also moved off
+  // the shared composer (app/commish/page.tsx now builds its own inline box, for the same
+  // consistency reason) — PostComposer.tsx's only remaining planned use is Epic 3's
+  // eventual open_tiebreaker trigger.
   async function handlePullSpreads() {
     if (!data) return;
     setErrorMessage(null);
@@ -324,29 +360,48 @@ export function WeekControlTile() {
 
           {state === "loaded" && !isComplete && (
             <div className="flex flex-col gap-4">
+              {!isDraftLike && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {linesUnlocked
+                      ? "Unlocked — tap a game to edit. Locks again after each save."
+                      : "Lines lock once the week is live — unlock to make a correction."}
+                  </p>
+                  <Switch checked={linesUnlocked} onCheckedChange={setLinesUnlocked} />
+                </div>
+              )}
               <div className="flex flex-col gap-2">
-                {data.games.map((g) => (
-                  <button
-                    key={g.id}
-                    type="button"
-                    disabled={g.status === "final" || checkingEdit}
-                    onClick={() => startEditSpread(g)}
-                    className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
-                  >
-                    <div className="flex flex-col">
-                      <span className="text-xs text-muted-foreground">
-                        {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
-                      </span>
-                      <span>
-                        {g.away_team} @ {g.home_team}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs text-muted-foreground">Home Spread</span>
-                      <span>{formatHomeSpread(g.spread)}</span>
-                    </div>
-                  </button>
-                ))}
+                {/* MNF excluded from the visible slate entirely — it's Epic 3's/the
+                    tiebreaker's domain, not a regular pickable game. Still seeded and
+                    still gets a spread via Pull Spreads under the hood (isMondayNightGame,
+                    lib/slate/format.ts) — just never shown or editable here. */}
+                {data.games
+                  .filter((g) => !isMondayNightGame(g.kickoff_at))
+                  .map((g) => {
+                    const editable = isDraftLike || linesUnlocked;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        disabled={g.status === "final" || checkingEdit || !editable}
+                        onClick={() => startEditSpread(g)}
+                        className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">
+                            {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
+                          </span>
+                          <span>
+                            {g.away_team} @ {g.home_team}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs text-muted-foreground">Home Spread</span>
+                          <span>{formatHomeSpread(g.spread)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
 
               {isDraftLike && (

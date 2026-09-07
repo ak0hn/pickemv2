@@ -18,6 +18,19 @@ export function formatGameDay(kickoffAt: string): string {
     .toUpperCase();
 }
 
+// Whether a game's kickoff falls on a Monday in ET — used to exclude it from Commish
+// Tools' visible slate (Alex's call, Sep 6/7 2026: MNF is entirely Epic 3's/the
+// tiebreaker's domain, Epic 1's slate shouldn't render it in any form). Naive but
+// deliberately not backed by a real `is_tiebreaker_game`/game-type column, which doesn't
+// exist yet — flagged as a real gap for Epic 3 to resolve (this heuristic silently breaks
+// on a week with zero or two Monday games), not solved here.
+export function isMondayNightGame(kickoffAt: string): boolean {
+  return (
+    new Date(kickoffAt).toLocaleDateString("en-US", { weekday: "short", timeZone: TEAM_TIMEZONE }) ===
+    "Mon"
+  );
+}
+
 export function formatKickoffTime(kickoffAt: string): string {
   return new Date(kickoffAt).toLocaleTimeString("en-US", {
     hour: "numeric",
