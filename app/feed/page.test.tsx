@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import "@/lib/test-utils/extend-matchers";
 import FeedPage from "./page";
 import type { FeedPost } from "@/lib/posts/actions";
@@ -16,6 +16,20 @@ vi.mock("@/lib/posts/actions", () => ({
   getFeedPosts: () => mockGetFeedPosts(),
 }));
 
+const mockGetReactionSummaries = vi.fn().mockResolvedValue({});
+const mockToggleReaction = vi.fn();
+vi.mock("@/lib/feed/reactions-actions", () => ({
+  getReactionSummaries: (postIds: string[]) => mockGetReactionSummaries(postIds),
+  toggleReaction: (postId: string) => mockToggleReaction(postId),
+}));
+
+// lucide-react's icon barrel export hangs Vite's dependency pre-bundler under this
+// project's vitest 4.1.11 + jsdom combination (established during PIC-11) — FeedPage now
+// transitively renders Heart via PostCard's ReactionControl.
+vi.mock("lucide-react", () => ({
+  Heart: () => <span data-testid="icon-heart" />,
+}));
+
 function post(id: string, createdAt: string): FeedPost {
   return {
     id,
@@ -29,6 +43,11 @@ function post(id: string, createdAt: string): FeedPost {
     block_data: null,
   };
 }
+
+beforeEach(() => {
+  mockGetReactionSummaries.mockReset().mockResolvedValue({});
+  mockToggleReaction.mockReset().mockResolvedValue({ reacted: true });
+});
 
 describe("FeedPage (PIC-31, NF7)", () => {
   it("Given posts in any DB order, When the feed loads, Then they render newest-first with no week selector anywhere", async () => {
@@ -60,5 +79,57 @@ describe("FeedPage (PIC-31, NF7)", () => {
     expect(
       screen.getByText("The commissioner will post when the week opens — check back soon."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("FeedPage reactions (PIC-32)", () => {
+  it("Given N posts on the feed, When it loads, Then getReactionSummaries is called exactly once with every post id — not once per card", async () => {
+    mockGetFeedPosts.mockResolvedValue([
+      post("post-1", "2026-09-10T12:00:00Z"),
+      post("post-2", "2026-09-09T12:00:00Z"),
+    ]);
+
+    render(<FeedPage />);
+
+    await waitFor(() => expect(screen.getByText("post-1")).toBeInTheDocument());
+    expect(mockGetReactionSummaries).toHaveBeenCalledTimes(1);
+    expect(mockGetReactionSummaries).toHaveBeenCalledWith(["post-1", "post-2"]);
+  });
+
+  it("Given a post with an existing reaction summary, When the feed loads, Then the count and viewer-reacted state render from it", async () => {
+    mockGetFeedPosts.mockResolvedValue([post("post-1", "2026-09-10T12:00:00Z")]);
+    mockGetReactionSummaries.mockResolvedValue({ "post-1": { count: 3, viewerReacted: true } });
+
+    render(<FeedPage />);
+
+    await waitFor(() => expect(screen.getByText("3")).toBeInTheDocument());
+  });
+
+  it("Given a GM taps the reaction control, Then the count updates optimistically and toggleReaction is called with that post's id", async () => {
+    mockGetFeedPosts.mockResolvedValue([post("post-1", "2026-09-10T12:00:00Z")]);
+    mockGetReactionSummaries.mockResolvedValue({ "post-1": { count: 0, viewerReacted: false } });
+
+    render(<FeedPage />);
+    await waitFor(() => expect(screen.getByText("post-1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /like this post/i }));
+
+    await waitFor(() => expect(screen.getByText("1")).toBeInTheDocument());
+    expect(mockToggleReaction).toHaveBeenCalledWith("post-1");
+  });
+
+  it("Given toggleReaction fails, When a GM taps the control, Then the optimistic update reverts", async () => {
+    mockGetFeedPosts.mockResolvedValue([post("post-1", "2026-09-10T12:00:00Z")]);
+    mockGetReactionSummaries.mockResolvedValue({ "post-1": { count: 0, viewerReacted: false } });
+    mockToggleReaction.mockRejectedValue(new Error("network error"));
+
+    render(<FeedPage />);
+    await waitFor(() => expect(screen.getByText("post-1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /like this post/i }));
+
+    // Count briefly shows 1 optimistically, then reverts to 0 (no count label at all)
+    // once the rejected server action resolves.
+    await waitFor(() => expect(screen.queryByText("1")).not.toBeInTheDocument());
   });
 });

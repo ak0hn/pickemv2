@@ -1,16 +1,22 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { useDev } from "@/lib/dev/DevProvider";
 import { PostBlockContent } from "@/components/feed/PostBlockContent";
+import { ReactionControl } from "@/components/feed/ReactionControl";
 import { formatRelativeTime } from "@/lib/feed/format";
+import type { ReactionSummary } from "@/lib/feed/reactions-actions";
 import type { FeedPost } from "@/lib/posts/actions";
 
 // PIC-31/NF10: the feed post card. Zone order per the Design System's Epic 4 section:
-// author/timestamp -> message -> image (freeform only) -> structured block -> CTA row.
-// Reactions and comments (PIC-32/PIC-33, separate tickets) mount directly below the CTA
-// row once built — no placeholder rendered for them here, same "positionally reserved,
-// not visually reserved" pattern as Epic 1's CT8-CT10 tiebreaker slot.
+// author/timestamp -> message -> image (freeform only) -> structured block -> CTA row ->
+// Separator -> reaction control (PIC-32) -> Separator -> comment thread (PIC-33, a
+// separate ticket — not rendered here yet, same "positionally reserved, not visually
+// reserved" pattern as Epic 1's CT8-CT10 tiebreaker slot).
 // Sep 7, 2026 (Alex's live PIC-31 feedback): "unclear which week posts are related to" —
 // only open_week/close_week blocks carry weekNumber directly (open_tiebreaker doesn't yet,
 // and isn't reachable before Epic 3; freeform has no meaningful week). Read from block_data
@@ -22,7 +28,18 @@ function weekLabel(post: FeedPost): string | null {
   return null;
 }
 
-export function PostCard({ post }: { post: FeedPost }) {
+export function PostCard({
+  post,
+  reaction,
+  onToggleReaction,
+  reactionPending,
+}: {
+  post: FeedPost;
+  reaction: ReactionSummary;
+  onToggleReaction: () => void;
+  reactionPending?: boolean;
+}) {
+  const { persona } = useDev();
   const week = weekLabel(post);
   return (
     <Card>
@@ -50,6 +67,17 @@ export function PostCard({ post }: { post: FeedPost }) {
         {post.block_data && <PostBlockContent block={post.block_data} context="feed" />}
 
         <PostCardCta post={post} />
+
+        <Separator />
+
+        <ReactionControl
+          postId={post.id}
+          count={reaction.count}
+          viewerReacted={reaction.viewerReacted}
+          onToggle={onToggleReaction}
+          disabled={reactionPending}
+          isCommissioner={persona.role === "commissioner"}
+        />
       </CardContent>
     </Card>
   );
