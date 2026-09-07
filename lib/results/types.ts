@@ -4,6 +4,11 @@ export interface WeekResultGameRow {
   spread: number | null;
   kickoffLabel: string;
   winner: "away" | "home" | "push" | null;
+  // Added Sep 7, 2026 so consumers (e.g. WeekControlTile's Complete-state list) can keep
+  // excluding MNF once it resolves too — it's the tiebreaker's domain, not part of the
+  // regular week-close results, same reasoning as Epic 1's slate filter
+  // (isMondayNightGame, lib/slate/format.ts).
+  isMondayNight: boolean;
 }
 
 export interface StandingsRow {

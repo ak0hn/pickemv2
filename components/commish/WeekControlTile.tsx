@@ -70,13 +70,19 @@ type LoadState = "loading" | "loaded" | "empty" | "error";
 //               next week now (PIC-30) — the active week resolves dynamically to the
 //               lowest-numbered non-closed week, not a hardcoded constant.
 interface WeekControlTileProps {
-  // Notified whenever the loaded week's live-ness changes, so the parent page can reorder
-  // itself around it (Alex's live E2E feedback, Sep 6/7 2026: once a week is live, the
-  // evergreen post card matters more than the slate and should move above it).
-  onWeekLiveChange?: (isLive: boolean) => void;
+  // Notified whenever whether the tile currently hosts an actionable CTA changes, so the
+  // parent page can reorder itself around it. Sep 7, 2026 correction (Alex's live E2E,
+  // re-reading his own original ask more carefully): it's NOT a simple "once live, the
+  // post card always wins" toggle — the tile itself hosts the Open Week and Close Week
+  // actions, and "opening + closing week is higher priority than generally posting" (his
+  // words) means the TILE should be on top in draft (open-week pending) and complete
+  // (close-week pending) states. The post card only outranks it in the one state where the
+  // tile has nothing actionable left to do — published, not yet complete (mid-week,
+  // passive spread-editing only).
+  onTilePriorityChange?: (tileHasPriority: boolean) => void;
 }
 
-export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {}) {
+export function WeekControlTile({ onTilePriorityChange }: WeekControlTileProps = {}) {
   const { tiebreakerInvoked, setTiebreakerInvoked, now, isDev, clockTick } = useDev();
 
   const [data, setData] = useState<SlateData | null>(null);
@@ -112,8 +118,15 @@ export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {})
       }
       setData(slate);
 
+      // Sep 7, 2026 fix: MNF must not gate "is the regular slate done" — per the Week
+      // Lifecycle Spec, Sunday final (not MNF final) is what puts Close Week/Open
+      // Tiebreaker in front of the commish. MNF kicks off hours later than SNF and
+      // resolves separately (Epic 3's concern); requiring it final too meant the tile
+      // never reached its Complete/close-week state right when Alex needed it (found via
+      // his own live E2E: reached "end of SNF," the tile hadn't updated at all).
       const nonVoided = slate.games.filter((g) => g.status !== "voided");
-      const allFinal = nonVoided.length > 0 && nonVoided.every((g) => g.status === "final");
+      const regularSlateGames = nonVoided.filter((g) => !isMondayNightGame(g.kickoff_at));
+      const allFinal = regularSlateGames.length > 0 && regularSlateGames.every((g) => g.status === "final");
       if (slate.week.state !== "draft" && slate.week.state !== "closed" && allFinal) {
         setResults(await computeWeekResults(slate.week.id));
       } else {
@@ -153,9 +166,10 @@ export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {})
   useEffect(() => {
     if (!data) return;
     const isDraftLikeWeek = data.week.state === "draft" || data.week.state === "closed";
-    onWeekLiveChange?.(!isDraftLikeWeek);
+    const isCompleteWeek = results !== null;
+    onTilePriorityChange?.(isDraftLikeWeek || isCompleteWeek);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.week.id, data?.week.state]);
+  }, [data?.week.id, data?.week.state, results]);
 
   // Kept from the original mock scaffold, dev-only — no real data behind this yet. The
   // real trigger is Epic 3's job (PIC-12's own ticket reserved this exact layout slot and
@@ -378,27 +392,46 @@ export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {})
                 {data.games
                   .filter((g) => !isMondayNightGame(g.kickoff_at))
                   .map((g) => {
-                    const editable = isDraftLike || linesUnlocked;
+                    // Sep 7, 2026 fix: "this game is over, here's the result" and "I can't
+                    // edit this right now" are two different facts and were incorrectly
+                    // sharing one visual treatment (disabled:opacity-60 fired for both) —
+                    // Alex's live feedback: he couldn't tell which games had concluded from
+                    // a merely-locked-for-editing row. isFinal now drives its own distinct
+                    // "Final" result display; lock state only affects tap-ability, not
+                    // whether the row looks dimmed.
+                    const isFinal = g.status === "final";
+                    const editable = !isFinal && (isDraftLike || linesUnlocked);
                     return (
                       <button
                         key={g.id}
                         type="button"
-                        disabled={g.status === "final" || checkingEdit || !editable}
+                        disabled={!editable || checkingEdit}
                         onClick={() => startEditSpread(g)}
-                        className="flex min-h-12 items-center justify-between gap-2 text-left text-sm disabled:opacity-60"
+                        className="flex min-h-12 items-center justify-between gap-2 text-left text-sm"
                       >
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground">
                             {formatGameDay(g.kickoff_at)} · {formatKickoffTime(g.kickoff_at)}
                           </span>
-                          <span>
+                          <span className={!isFinal && !editable ? "text-muted-foreground" : undefined}>
                             {g.away_team} @ {g.home_team}
                           </span>
                         </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-xs text-muted-foreground">Home Spread</span>
-                          <span>{formatHomeSpread(g.spread)}</span>
-                        </div>
+                        {isFinal ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <Badge variant="secondary">Final</Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {g.away_team} {g.away_score} – {g.home_team} {g.home_score}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-end">
+                            <span className="text-xs text-muted-foreground">Home Spread</span>
+                            <span className={!editable ? "text-muted-foreground" : undefined}>
+                              {formatHomeSpread(g.spread)}
+                            </span>
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -462,7 +495,7 @@ export function WeekControlTile({ onWeekLiveChange }: WeekControlTileProps = {})
 
               <div className="flex flex-col gap-1.5">
                 {results.games
-                  .filter((g) => g.winner !== null)
+                  .filter((g) => g.winner !== null && !g.isMondayNight)
                   .map((g) => (
                     <div key={`${g.away}-${g.home}`} className="flex items-center justify-between text-sm">
                       <div className="flex flex-col">

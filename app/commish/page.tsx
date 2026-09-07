@@ -20,13 +20,19 @@ import { createFreeformPost, uploadPostImage } from "@/lib/posts/actions";
 //
 // Sep 6/7, 2026 (Alex's live Epic 1 E2E feedback): the evergreen "Post to Feed" card used
 // to open a bottom-sheet composer, while the tile's own open/close-week posting is an
-// inline text box — inconsistent. Rebuilt inline here to match. Also: once a week is live,
-// posting matters more than the slate, so the two cards swap order (WeekControlTile
-// notifies via onWeekLiveChange) — each wrapped in a stably-keyed element so React
-// reconciles the swap by key instead of remounting either component.
+// inline text box — inconsistent. Rebuilt inline here to match.
+//
+// Sep 7, 2026 correction: the initial "once live, post card always wins" reorder was too
+// blunt — the tile itself hosts the Open Week and Close Week actions, and "opening +
+// closing week is higher priority than generally posting" (Alex's own words) means the
+// TILE should be on top whenever it has one of those pending, not just in draft. Only the
+// mid-week "published, nothing tile-actionable yet" window is when the post card should
+// lead. WeekControlTile computes this and notifies via onTilePriorityChange; each card
+// renders inside a stably-keyed element so React reconciles the swap by key instead of
+// remounting either component.
 export default function CommishPage() {
   const { persona } = useDev();
-  const [weekIsLive, setWeekIsLive] = useState(false);
+  const [tileHasPriority, setTileHasPriority] = useState(true);
 
   const [postMessage, setPostMessage] = useState("");
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null);
@@ -79,7 +85,7 @@ export default function CommishPage() {
     );
   }
 
-  const weekTile = <WeekControlTile onWeekLiveChange={setWeekIsLive} />;
+  const weekTile = <WeekControlTile onTilePriorityChange={setTileHasPriority} />;
 
   const postCard = (
     <Card>
@@ -145,14 +151,14 @@ export default function CommishPage() {
     </Card>
   );
 
-  const orderedCards = weekIsLive
+  const orderedCards = tileHasPriority
     ? [
-        <div key="post-card">{postCard}</div>,
         <div key="week-tile">{weekTile}</div>,
+        <div key="post-card">{postCard}</div>,
       ]
     : [
-        <div key="week-tile">{weekTile}</div>,
         <div key="post-card">{postCard}</div>,
+        <div key="week-tile">{weekTile}</div>,
       ];
 
   return (

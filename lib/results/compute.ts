@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { formatKickoff } from "@/lib/results/format";
+import { isMondayNightGame } from "@/lib/slate/format";
 import type { WeekResults } from "@/lib/results/types";
 
 // PIC-24: read-only results/standings computation, decoupled from week_close(). Extracted
@@ -45,6 +46,7 @@ export async function computeWeekResults(weekId: string): Promise<WeekResults> {
       spread: g.spread,
       kickoffLabel: formatKickoff(g.kickoff_at),
       winner,
+      isMondayNight: isMondayNightGame(g.kickoff_at),
     };
   });
 
