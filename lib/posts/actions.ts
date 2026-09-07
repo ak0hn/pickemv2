@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { formatKickoff } from "@/lib/results/format";
 import { computeWeekResults } from "@/lib/results/compute";
-import type { OpenWeekBlock, CloseWeekBlock } from "@/lib/posts/types";
+import type { OpenWeekBlock, CloseWeekBlock, Post } from "@/lib/posts/types";
 
 // Shared by every action here that needs "who is the signed-in commissioner" — was
 // duplicated three times before (flagged in PIC-11's E4 review).
@@ -98,12 +98,13 @@ export async function publishWeekWithPost(input: {
 // scoring approach and why it derives correctness for still-'submitted' picks on the fly
 // instead of only trusting already-scored rows (PIC-12 E4 finding).
 export async function buildCloseWeekBlock(weekId: string): Promise<CloseWeekBlock> {
-  const { weekNumber, games, standings } = await computeWeekResults(weekId);
-  // Drop rosterId (added in computeWeekResults for PIC-24's React-key needs) before this
-  // gets persisted as a post's block_data — CloseWeekBlock's shape is stored data with its
-  // own history, not an ephemeral UI type, so it shouldn't silently pick up new fields.
-  const top5 = standings.slice(0, 5).map(({ name, wins, losses, pushes }) => ({ name, wins, losses, pushes }));
-  return { type: "close_week", weekNumber, games, standings: top5 };
+  const { weekNumber, games, weeklyWinners } = await computeWeekResults(weekId);
+  // Sep 7, 2026 (Alex's live PIC-31 feedback): dropped season standings from the post
+  // block entirely — full win/loss/push records for up to 5 GMs was "way too much
+  // info/data" for a feed card. weeklyWinners (this week's own 6/6 winners, not
+  // season-cumulative) is the right level of detail for a social summary; the League page
+  // (NF12's "View league results" CTA) is where the full picture belongs.
+  return { type: "close_week", weekNumber, games, weeklyWinners };
 }
 
 // CT18: closes the week and posts the results announcement atomically via
@@ -134,6 +135,35 @@ export async function closeWeekWithPost(input: {
   revalidatePath("/commish");
   revalidatePath("/feed");
   return { ok: true };
+}
+
+export interface FeedPost extends Post {
+  authorName: string;
+}
+
+// PIC-31/NF7: every post, newest-first, no week filter and no pagination cursor for v1
+// (a single rolling feed — the past/future sub-navigation this originally had, NF8/NF9,
+// was retired Sep 7, 2026, see the PRD). Two separate queries + a Map join rather than an
+// embedded Supabase relation select — matches this codebase's existing pattern
+// (lib/results/compute.ts's roster/picks stitching), not a new join style.
+export async function getFeedPosts(): Promise<FeedPost[]> {
+  const supabase = await createClient();
+
+  const { data: posts, error: postsErr } = await supabase
+    .from("posts")
+    .select("id, author_roster_id, week_id, trigger, message, image_url, block_data, created_at")
+    .order("created_at", { ascending: false });
+  if (postsErr) throw new Error(`Couldn't load the feed: ${postsErr.message}`);
+
+  const { data: roster, error: rosterErr } = await supabase.from("roster").select("id, display_name");
+  if (rosterErr) throw new Error(`Couldn't load the feed: ${rosterErr.message}`);
+
+  const nameByRosterId = new Map((roster ?? []).map((r) => [r.id, r.display_name ?? "Commissioner"]));
+
+  return (posts ?? []).map((p) => ({
+    ...p,
+    authorName: nameByRosterId.get(p.author_roster_id) ?? "Commissioner",
+  }));
 }
 
 // Free-form post — no block, no coupling to any other action. The only trigger type

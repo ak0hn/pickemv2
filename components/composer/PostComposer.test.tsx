@@ -177,4 +177,31 @@ describe("PostComposer block rendering (CT17 — all four trigger variants)", ()
 
     expect(screen.queryByText(/Slate$/)).not.toBeInTheDocument();
   });
+
+  // PIC-31 regression coverage: BlockContent was extracted out of this file into the
+  // shared PostBlockContent component (components/feed/PostBlockContent.tsx), consumed
+  // here with context="preview" and by the public feed with context="feed". A regression
+  // in that context conditional could silently strip the "(see full)" link from the
+  // commish's own draft-review surface without anything catching it — this test is that
+  // catch. Feed-context behavior (link suppressed) is covered separately in
+  // components/feed/PostCard.test.tsx's NF12 case.
+  it("Given a close_week block, When rendered in the composer's preview context, Then the block's own \"(see full)\" link still renders", () => {
+    render(
+      <PostComposer
+        open
+        onOpenChange={vi.fn()}
+        trigger="close_week"
+        block={{
+          type: "close_week",
+          weekNumber: 4,
+          games: [{ away: "NYJ", home: "BUF", spread: -6.5, kickoffLabel: "Thu 8:20 PM ET", winner: "home" }],
+          weeklyWinners: ["Jordan P."],
+        }}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Week 4 Results")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "(see full)" })).toHaveAttribute("href", "/league");
+  });
 });

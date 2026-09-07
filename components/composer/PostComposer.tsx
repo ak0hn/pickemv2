@@ -2,14 +2,14 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ImagePlus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadPostImage } from "@/lib/posts/actions";
-import type { PostBlockData, PostTrigger, BlockGameRow } from "@/lib/posts/types";
+import { PostBlockContent } from "@/components/feed/PostBlockContent";
+import type { PostBlockData, PostTrigger } from "@/lib/posts/types";
 
 // close_week's placeholder needs the real week number, which only the block (not the
 // trigger alone) carries — so this is a function keyed on both, not a static lookup.
@@ -24,85 +24,6 @@ function getPlaceholder(trigger: PostTrigger, block: PostBlockData | null): stri
     case "freeform":
       return "Write a post…";
   }
-}
-
-// Design System's own two examples ("Home -6.5" or "Away +6.5") don't fully pin down a
-// rule for every case — this codebase stores `spread` as the home team's line (negative
-// = home favored), and SlateBuilder already displays it that way (home abbr + signed
-// value), so the composer's block mirrors that same convention for consistency rather
-// than inventing a second display rule. A spread of exactly 0 is a pick'em — shown as
-// "PK" per sports convention rather than a bare, sign-less "0".
-function formatSpreadLine(row: BlockGameRow): string {
-  if (row.spread === null) return `${row.away} @ ${row.home}`;
-  if (row.spread === 0) return `${row.away} @ ${row.home} — PK`;
-  const sign = row.spread > 0 ? "+" : "";
-  return `${row.away} @ ${row.home} — ${row.home} ${sign}${row.spread}`;
-}
-
-function BlockContent({ block }: { block: PostBlockData }) {
-  if (block.type === "open_week") {
-    return (
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
-        <p className="text-sm font-medium">Week {block.weekNumber} Slate</p>
-        <div className="flex flex-col gap-1.5">
-          {block.games.map((g, i) => (
-            <div key={i} className="flex items-center justify-between text-xs">
-              <span>{formatSpreadLine(g)}</span>
-              <span className="text-muted-foreground">{g.kickoffLabel}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (block.type === "close_week") {
-    return (
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
-        <p className="text-sm font-medium">Week {block.weekNumber} Results</p>
-        <div className="flex flex-col gap-1.5">
-          {block.games.map((g, i) => (
-            <div key={i} className="flex items-center justify-between text-xs">
-              <span>
-                <span className={g.winner === "away" ? "font-semibold" : undefined}>{g.away}</span>
-                {" @ "}
-                <span className={g.winner === "home" ? "font-semibold" : undefined}>{g.home}</span>
-              </span>
-              <span className="text-muted-foreground">{g.winner === "push" ? "Push" : ""}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-1 border-t border-border pt-2">
-          <p className="text-xs font-medium text-muted-foreground">Standings update</p>
-          {block.standings.slice(0, 5).map((s, i) => (
-            <div key={i} className="flex items-center justify-between text-xs">
-              <span>{s.name}</span>
-              <span className="text-muted-foreground">
-                {s.wins}-{s.losses}-{s.pushes}
-              </span>
-            </div>
-          ))}
-          <Link href="/league" className="mt-1 inline-block text-xs text-muted-foreground underline">
-            (see full)
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // open_tiebreaker
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
-      <p className="text-sm font-medium">Tiebreaker: Monday Night Football</p>
-      <div className="flex items-center justify-between text-xs">
-        <span>{formatSpreadLine(block.game)}</span>
-        <span className="text-muted-foreground">{block.game.kickoffLabel}</span>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Pick the winner against the spread — closes at kickoff.
-      </p>
-    </div>
-  );
 }
 
 interface PostComposerProps {
@@ -226,7 +147,7 @@ export function PostComposer({ open, onOpenChange, trigger, block, onConfirm }: 
           {/* Read-only, non-removable per CT17 — the block is what ties this post to the
               action that triggered it; letting it be edited or detached would break that
               coupling. */}
-          {block && <BlockContent block={block} />}
+          {block && <PostBlockContent block={block} context="preview" />}
 
           {error && (
             <p className="text-sm text-destructive" role="alert">
