@@ -11,12 +11,25 @@ import type { FeedPost } from "@/lib/posts/actions";
 // Reactions and comments (PIC-32/PIC-33, separate tickets) mount directly below the CTA
 // row once built — no placeholder rendered for them here, same "positionally reserved,
 // not visually reserved" pattern as Epic 1's CT8-CT10 tiebreaker slot.
+// Sep 7, 2026 (Alex's live PIC-31 feedback): "unclear which week posts are related to" —
+// only open_week/close_week blocks carry weekNumber directly (open_tiebreaker doesn't yet,
+// and isn't reachable before Epic 3; freeform has no meaningful week). Read from block_data
+// rather than post.week_id so this needs no extra DB lookup.
+function weekLabel(post: FeedPost): string | null {
+  if (post.block_data?.type === "open_week" || post.block_data?.type === "close_week") {
+    return `Week ${post.block_data.weekNumber}`;
+  }
+  return null;
+}
+
 export function PostCard({ post }: { post: FeedPost }) {
+  const week = weekLabel(post);
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <p className="text-sm font-medium text-card-foreground">
           {post.authorName} <span className="text-xs text-muted-foreground">· Commissioner</span>
+          {week && <span className="text-xs text-muted-foreground"> · {week}</span>}
         </p>
         <p className="text-xs text-muted-foreground">{formatRelativeTime(post.created_at)}</p>
       </CardHeader>

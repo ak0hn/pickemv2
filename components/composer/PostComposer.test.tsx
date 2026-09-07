@@ -195,7 +195,7 @@ describe("PostComposer block rendering (CT17 — all four trigger variants)", ()
           type: "close_week",
           weekNumber: 4,
           games: [{ away: "NYJ", home: "BUF", spread: -6.5, kickoffLabel: "Thu 8:20 PM ET", winner: "home" }],
-          standings: [{ name: "Jordan P.", wins: 5, losses: 2, pushes: 0 }],
+          weeklyWinners: ["Jordan P."],
         }}
         onConfirm={vi.fn()}
       />

@@ -14,7 +14,7 @@ const CLOSE_WEEK_BLOCK = {
   type: "close_week" as const,
   weekNumber: 3,
   games: [{ away: "NE", home: "SEA", spread: -3, kickoffLabel: "Thu 8:20 PM ET", winner: "home" as const }],
-  standings: [{ name: "Jordan P.", wins: 5, losses: 2, pushes: 0 }],
+  weeklyWinners: ["Jordan P."],
 };
 
 describe("PostBlockContent — context=preview (composer regression)", () => {

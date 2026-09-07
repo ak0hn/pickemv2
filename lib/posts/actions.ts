@@ -98,12 +98,13 @@ export async function publishWeekWithPost(input: {
 // scoring approach and why it derives correctness for still-'submitted' picks on the fly
 // instead of only trusting already-scored rows (PIC-12 E4 finding).
 export async function buildCloseWeekBlock(weekId: string): Promise<CloseWeekBlock> {
-  const { weekNumber, games, standings } = await computeWeekResults(weekId);
-  // Drop rosterId (added in computeWeekResults for PIC-24's React-key needs) before this
-  // gets persisted as a post's block_data — CloseWeekBlock's shape is stored data with its
-  // own history, not an ephemeral UI type, so it shouldn't silently pick up new fields.
-  const top5 = standings.slice(0, 5).map(({ name, wins, losses, pushes }) => ({ name, wins, losses, pushes }));
-  return { type: "close_week", weekNumber, games, standings: top5 };
+  const { weekNumber, games, weeklyWinners } = await computeWeekResults(weekId);
+  // Sep 7, 2026 (Alex's live PIC-31 feedback): dropped season standings from the post
+  // block entirely — full win/loss/push records for up to 5 GMs was "way too much
+  // info/data" for a feed card. weeklyWinners (this week's own 6/6 winners, not
+  // season-cumulative) is the right level of detail for a social summary; the League page
+  // (NF12's "View league results" CTA) is where the full picture belongs.
+  return { type: "close_week", weekNumber, games, weeklyWinners };
 }
 
 // CT18: closes the week and posts the results announcement atomically via

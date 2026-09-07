@@ -16,6 +16,34 @@ const BASE: Omit<FeedPost, "trigger" | "block_data" | "message" | "image_url"> =
 };
 
 describe("PostCard (PIC-31)", () => {
+  it("Given an open_week or close_week post, Then the card header shows which week it's about", () => {
+    const post: FeedPost = {
+      ...BASE,
+      trigger: "open_week",
+      message: "Lines are up.",
+      image_url: null,
+      block_data: { type: "open_week", weekNumber: 5, games: [] },
+    };
+    render(<PostCard post={post} />);
+
+    // Scoped to the header's own "· Week N" text specifically — the block's own "Week N
+    // Slate"/"Week N Results" heading also matches a bare /Week 5/ query.
+    expect(screen.getByText("· Week 5")).toBeInTheDocument();
+  });
+
+  it("Given a free-form post, Then the card header shows no week label", () => {
+    const post: FeedPost = {
+      ...BASE,
+      trigger: "freeform",
+      message: "GLHF everyone.",
+      image_url: null,
+      block_data: null,
+    };
+    render(<PostCard post={post} />);
+
+    expect(screen.queryByText(/Week \d/)).not.toBeInTheDocument();
+  });
+
   it("NF1/NF10 — Given an open_week post, When rendered, Then it shows the real message and slate block, not a placeholder", () => {
     const post: FeedPost = {
       ...BASE,
@@ -59,7 +87,7 @@ describe("PostCard (PIC-31)", () => {
         type: "close_week",
         weekNumber: 3,
         games: [{ away: "NE", home: "SEA", spread: -3, kickoffLabel: "Thu 8:20 PM ET", winner: "home" }],
-        standings: [{ name: "Jordan P.", wins: 5, losses: 2, pushes: 0 }],
+        weeklyWinners: ["Jordan P."],
       },
     };
     render(<PostCard post={post} />);

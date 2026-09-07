@@ -20,7 +20,13 @@ export interface CloseWeekBlock {
   type: "close_week";
   weekNumber: number;
   games: (BlockGameRow & { winner: "away" | "home" | "push" | null })[];
-  standings: { name: string; wins: number; losses: number; pushes: number }[];
+  // Names of this week's 6/6 winners (not season standings — a feed post is a social
+  // summary, not a data dump; full league standings belong on the League page, reachable
+  // via NF12's "View league results" CTA). Sep 7, 2026, Alex's live feedback on PIC-31:
+  // replaces the original `standings` field, which showed full win/loss/push records for
+  // up to 5 GMs — "way too much info/data" for a feed card. Optional so old posts (stored
+  // block_data snapshots from before this change) don't break PostBlockContent's render.
+  weeklyWinners?: string[];
 }
 
 export interface OpenTiebreakerBlock {

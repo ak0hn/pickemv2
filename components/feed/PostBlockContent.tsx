@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import type { PostBlockData, BlockGameRow } from "@/lib/posts/types";
 
 // PIC-31: extracted from components/composer/PostComposer.tsx, which previously owned
@@ -73,17 +74,28 @@ export function PostBlockContent({
           ))}
         </div>
         <div className="mt-1 border-t border-border pt-2">
-          <p className="text-xs font-medium text-muted-foreground">Standings update</p>
-          {block.standings.slice(0, 5).map((s, i) => (
-            <div key={i} className="flex items-center justify-between text-xs">
-              <span>{s.name}</span>
-              <span className="text-muted-foreground">
-                {s.wins}-{s.losses}-{s.pushes}
-              </span>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+            This week&apos;s winner{block.weeklyWinners?.length === 1 ? "" : "s"}
+          </p>
+          {/* Sep 7, 2026 (Alex's live PIC-31 feedback): replaces the old season-standings
+              snippet (full win/loss/push for up to 5 GMs — "way too much info/data" for a
+              feed card) with a name-pill list of just this week's 6/6 winners. Full
+              standings still live on the League page (the CTA below, or NF12 on the feed
+              card itself). weeklyWinners is optional — older stored posts predate this
+              field and simply render no pills rather than crashing. */}
+          {block.weeklyWinners && block.weeklyWinners.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {block.weeklyWinners.map((name) => (
+                <Badge key={name} variant="secondary">
+                  {name}
+                </Badge>
+              ))}
             </div>
-          ))}
+          ) : (
+            <p className="text-xs text-muted-foreground">No 6/6 winners this week.</p>
+          )}
           {context === "preview" && (
-            <Link href="/league" className="mt-1 inline-block text-xs text-muted-foreground underline">
+            <Link href="/league" className="mt-1.5 inline-block text-xs text-muted-foreground underline">
               (see full)
             </Link>
           )}
