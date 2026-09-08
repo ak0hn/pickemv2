@@ -17,7 +17,7 @@ import { getReactionSummaries, toggleReaction, type ReactionSummary } from "@/li
 type LoadState = "loading" | "loaded" | "empty" | "error";
 
 export default function FeedPage() {
-  const { persona } = useDev();
+  const { persona, clockTick } = useDev();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [reactions, setReactions] = useState<Record<string, ReactionSummary>>({});
   // Sep 7, 2026 (E4 finding on PIC-32): was a single global `pendingReactionId` guard that
@@ -51,7 +51,14 @@ export default function FeedPage() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    // Sep 7, 2026 (Alex's live PIC-32 QA): clockTick also bumps on a dev persona switch
+    // (DevProvider), not just a clock change — the feed's reaction summaries are scoped to
+    // whichever GM/commissioner is actually signed in, and switching "Viewing as" swaps that
+    // real session underneath. Without this, a post's like state kept reflecting whoever was
+    // signed in at the last fetch, and tapping the heart toggled THEIR reaction, not the
+    // currently-viewed persona's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, clockTick]);
 
   // Optimistic — flips local state immediately, calls the server action in the background,
   // reverts on failure. A full refetch per tap would feel laggy for something this frequent.

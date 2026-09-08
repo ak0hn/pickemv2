@@ -115,9 +115,18 @@ export function DevProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Bridges the mock persona switcher to a real Supabase Auth session (dev-only test
     // accounts) so RLS/role checks stay live for any component reading real data.
-    devSignInAs(persona.role).catch((err) => {
-      console.error("Dev sign-in failed:", err);
-    });
+    // Sep 7, 2026 (Alex's live PIC-32 QA): this used to fire-and-forget with nothing
+    // telling already-loaded data (e.g. the feed's reaction summaries) that the signed-in
+    // identity underneath it just changed — components kept showing whichever viewer was
+    // signed in at their own last fetch, and a reaction toggle would act on THAT stale
+    // viewer's row instead of the one now selected. Bumping clockTick only after sign-in
+    // actually resolves reuses the same refetch signal WeekControlTile already keys off,
+    // and only after the new session is live so a refetch never races the old one.
+    devSignInAs(persona.role)
+      .then(() => setClockTick((t) => t + 1))
+      .catch((err) => {
+        console.error("Dev sign-in failed:", err);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persona.role]);
 
