@@ -144,6 +144,26 @@ describe("CommentThread (PIC-33, NF4/NF5/NF6)", () => {
     expect(mockGetCommentThreadSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("Given an expand failure, When a reload happens (e.g. a persona-switch refetch), Then the stale expand error clears (E4 verification fix)", async () => {
+    mockGetCommentThreadSummary.mockResolvedValue({
+      count: 5,
+      recent: [comment({ id: "c3" }), comment({ id: "c4" }), comment({ id: "c5" })],
+    });
+    mockGetFullThread.mockRejectedValue(new Error("network blip"));
+    const { rerender } = render(<CommentThread {...BASE_PROPS} />);
+
+    fireEvent.click(await screen.findByText("See all 5 comments"));
+    expect(await screen.findByText(/couldn't load the full thread/i)).toBeInTheDocument();
+
+    // Simulate a reload — the same load()-triggering path a clockTick change (persona
+    // switch) would take — without ever re-expanding.
+    mockGetCommentThreadSummary.mockResolvedValue({ count: 0, recent: [] });
+    rerender(<CommentThread postId="post-2" isCommissioner={false} />);
+
+    await waitFor(() => expect(mockGetCommentThreadSummary).toHaveBeenCalledWith("post-2"));
+    expect(screen.queryByText(/couldn't load the full thread/i)).not.toBeInTheDocument();
+  });
+
   describe("NF5/NF6 — delete affordance and moderation", () => {
     it("Given a comment isn't the viewer's own and the viewer isn't commissioner, Then no delete button renders", async () => {
       mockGetCommentThreadSummary.mockResolvedValue({

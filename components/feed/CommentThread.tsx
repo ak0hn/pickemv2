@@ -55,6 +55,10 @@ export function CommentThread({ postId, isCommissioner }: { postId: string; isCo
 
   function load() {
     setHasLoadError(false);
+    // E4 verification finding: expandError wasn't reset here, so a failed expand followed by
+    // a clockTick-triggered reload (e.g. a persona switch) left "Couldn't load the full
+    // thread" showing over a thread that was never re-expanded in this load cycle.
+    setExpandError(false);
     // Reset to the skeleton state during a reload (e.g. Retry, or a persona-switch refetch)
     // rather than leaving the previous fetch's comments — including their isOwn, stamped
     // against whoever was signed in before — visible and interactive during the refetch.
