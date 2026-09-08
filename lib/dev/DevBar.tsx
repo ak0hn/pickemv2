@@ -17,9 +17,12 @@ import { devSeedWeekComplete, devSeedPicks, devResetTestData } from "./dev-test-
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-// Same test accounts as dev-auth-actions.ts's DEV_ACCOUNTS map.
-const COMMISH_EMAIL = "dev-commish@pickemv2.test";
-const GM_EMAIL = "dev-gm@pickemv2.test";
+// Sep 7, 2026: dev-auth-actions.ts moved from one shared account per role to one per
+// persona (see its own comment) — these two just need any one commissioner + any one GM
+// account for the picks-seeding buttons below, so they point at MOCK_GMS's first of each
+// (gm-1 Jordan P., gm-3 Riley M.). Must match seed-dev-users.mjs's ids.
+const COMMISH_EMAIL = "dev-gm-1@pickemv2.test";
+const GM_EMAIL = "dev-gm-3@pickemv2.test";
 
 type BusyAction = "reset-week1" | "seed" | "picks-commish" | "picks-gm" | "picks-none" | "reset" | null;
 

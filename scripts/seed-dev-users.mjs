@@ -4,6 +4,13 @@
 // Uses service_role here ONLY because creating auth users requires the admin API — the
 // app itself never uses service_role for request-time access.
 //
+// Sep 7, 2026 (Alex's live PIC-32 QA): one account per persona now, not one per role — a
+// shared "dev-gm@..." account for every GM-labeled persona meant the mock switcher's GM
+// names were cosmetic only, and any feature reading real per-user data (reactions, PIC-32)
+// couldn't actually tell two different GMs apart. This list must be kept in sync with
+// lib/mock/data.ts's MOCK_GMS by id — this script runs standalone via plain node, so it
+// can't import that TS file directly (same constraint as the other seed-dev-*.mjs scripts).
+//
 // Run: node --env-file=.env.local scripts/seed-dev-users.mjs
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
@@ -21,10 +28,17 @@ const admin = createClient(url, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+// Mirrors lib/mock/data.ts's MOCK_GMS 1:1 by id — devSignInAs derives the email from
+// persona.id as `dev-${id}@pickemv2.test`, so an id here must match exactly.
 const testUsers = [
-  { email: "dev-commish@pickemv2.test", displayName: "Dev Commissioner", role: "commissioner" },
-  { email: "dev-gm@pickemv2.test", displayName: "Dev GM", role: "gm" },
-];
+  { id: "gm-1", displayName: "Jordan P.", role: "commissioner" },
+  { id: "gm-2", displayName: "Sam T.", role: "commissioner" },
+  { id: "gm-3", displayName: "Riley M.", role: "gm" },
+  { id: "gm-4", displayName: "Casey B.", role: "gm" },
+  { id: "gm-5", displayName: "Drew H.", role: "gm" },
+  { id: "gm-6", displayName: "Quinn A.", role: "gm" },
+  { id: "gm-7", displayName: "Morgan L.", role: "gm" },
+].map((u) => ({ ...u, email: `dev-${u.id}@pickemv2.test` }));
 
 for (const u of testUsers) {
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
