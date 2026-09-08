@@ -23,6 +23,16 @@ vi.mock("@/lib/dev/DevProvider", () => ({
   useDev: () => ({ persona: { role: "gm" } }),
 }));
 
+// PIC-33: PostCard now always mounts a CommentThread, which fetches its own summary on
+// mount — mocked to an empty thread here since comment behavior itself is exercised in
+// CommentThread.test.tsx, not re-tested at this layer.
+vi.mock("@/lib/feed/comments-actions", () => ({
+  getCommentThreadSummary: vi.fn().mockResolvedValue({ count: 0, recent: [] }),
+  getFullThread: vi.fn(),
+  addComment: vi.fn(),
+  deleteComment: vi.fn(),
+}));
+
 const BASE: Omit<FeedPost, "trigger" | "block_data" | "message" | "image_url"> = {
   id: "post-1",
   author_roster_id: "roster-1",
