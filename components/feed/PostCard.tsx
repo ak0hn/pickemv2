@@ -8,15 +8,14 @@ import { Separator } from "@/components/ui/separator";
 import { useDev } from "@/lib/dev/DevProvider";
 import { PostBlockContent } from "@/components/feed/PostBlockContent";
 import { ReactionControl } from "@/components/feed/ReactionControl";
+import { CommentThread } from "@/components/feed/CommentThread";
 import { formatRelativeTime } from "@/lib/feed/format";
 import type { ReactionSummary } from "@/lib/feed/reactions-actions";
 import type { FeedPost } from "@/lib/posts/actions";
 
 // PIC-31/NF10: the feed post card. Zone order per the Design System's Epic 4 section:
 // author/timestamp -> message -> image (freeform only) -> structured block -> CTA row ->
-// Separator -> reaction control (PIC-32) -> Separator -> comment thread (PIC-33, a
-// separate ticket — not rendered here yet, same "positionally reserved, not visually
-// reserved" pattern as Epic 1's CT8-CT10 tiebreaker slot).
+// Separator -> reaction control (PIC-32) -> Separator -> comment thread (PIC-33).
 // Sep 7, 2026 (Alex's live PIC-31 feedback): "unclear which week posts are related to" —
 // only open_week/close_week blocks carry weekNumber directly (open_tiebreaker doesn't yet,
 // and isn't reachable before Epic 3; freeform has no meaningful week). Read from block_data
@@ -78,6 +77,10 @@ export function PostCard({
           disabled={reactionPending}
           isCommissioner={persona.role === "commissioner"}
         />
+
+        <Separator />
+
+        <CommentThread postId={post.id} isCommissioner={persona.role === "commissioner"} />
       </CardContent>
     </Card>
   );

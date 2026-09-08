@@ -23,11 +23,22 @@ vi.mock("@/lib/feed/reactions-actions", () => ({
   toggleReaction: (postId: string) => mockToggleReaction(postId),
 }));
 
+// PIC-33: FeedPage now transitively renders CommentThread via PostCard, which fetches its
+// own summary on mount — mocked to an empty thread here since comment behavior itself is
+// exercised in CommentThread.test.tsx, not re-tested at this layer.
+vi.mock("@/lib/feed/comments-actions", () => ({
+  getCommentThreadSummary: vi.fn().mockResolvedValue({ count: 0, recent: [] }),
+  getFullThread: vi.fn(),
+  addComment: vi.fn(),
+  deleteComment: vi.fn(),
+}));
+
 // lucide-react's icon barrel export hangs Vite's dependency pre-bundler under this
 // project's vitest 4.1.11 + jsdom combination (established during PIC-11) — FeedPage now
-// transitively renders Heart via PostCard's ReactionControl.
+// transitively renders Heart via PostCard's ReactionControl and X via CommentThread.
 vi.mock("lucide-react", () => ({
   Heart: () => <span data-testid="icon-heart" />,
+  X: () => <span data-testid="icon-x" />,
 }));
 
 function post(id: string, createdAt: string): FeedPost {
