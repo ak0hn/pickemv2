@@ -114,12 +114,23 @@ export function DevProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Bridges the mock persona switcher to a real Supabase Auth session (dev-only test
-    // accounts) so RLS/role checks stay live for any component reading real data.
-    devSignInAs(persona.role).catch((err) => {
-      console.error("Dev sign-in failed:", err);
-    });
+    // accounts, one per persona — see dev-auth-actions.ts) so RLS/role checks stay live for
+    // any component reading real data.
+    // Sep 7, 2026 (Alex's live PIC-32 QA): this used to key off persona.role, which (a)
+    // fired devSignInAs with nothing telling already-loaded data (e.g. the feed's reaction
+    // summaries) that the signed-in identity had changed, and (b) meant switching between
+    // two personas sharing a role (e.g. two GMs) never re-signed-in at all, since they were
+    // secretly the same shared account anyway. Now keyed on persona.id: every persona switch
+    // is a real account switch, and clockTick only bumps once sign-in actually resolves —
+    // reusing the same refetch signal WeekControlTile already keys off — so a refetch never
+    // races the old session.
+    devSignInAs(persona.id)
+      .then(() => setClockTick((t) => t + 1))
+      .catch((err) => {
+        console.error("Dev sign-in failed:", err);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persona.role]);
+  }, [persona.id]);
 
   return (
     <DevContext.Provider

@@ -1,11 +1,27 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import "@/lib/test-utils/extend-matchers";
 import { PostCard } from "./PostCard";
 import type { FeedPost } from "@/lib/posts/actions";
 
 afterEach(cleanup);
+
+// lucide-react's icon barrel export hangs Vite's dependency pre-bundler under this
+// project's vitest 4.1.11 + jsdom combination (established during PIC-11, see
+// PostComposer.test.tsx) — PostCard now transitively renders Heart via ReactionControl.
+vi.mock("lucide-react", () => ({
+  Heart: () => <span data-testid="icon-heart" />,
+  X: () => <span data-testid="icon-x" />,
+}));
+
+// PIC-32: PostCard now reads persona.role itself (for ReactionControl's isCommissioner
+// prop) rather than taking it from a caller-supplied prop — default to a GM viewer here;
+// commissioner-specific behavior (deleting others' reactions) is exercised in
+// ReactionControl.test.tsx, not re-tested at this layer.
+vi.mock("@/lib/dev/DevProvider", () => ({
+  useDev: () => ({ persona: { role: "gm" } }),
+}));
 
 const BASE: Omit<FeedPost, "trigger" | "block_data" | "message" | "image_url"> = {
   id: "post-1",
@@ -24,7 +40,13 @@ describe("PostCard (PIC-31)", () => {
       image_url: null,
       block_data: { type: "open_week", weekNumber: 5, games: [] },
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     // Scoped to the header's own "· Week N" text specifically — the block's own "Week N
     // Slate"/"Week N Results" heading also matches a bare /Week 5/ query.
@@ -39,7 +61,13 @@ describe("PostCard (PIC-31)", () => {
       image_url: null,
       block_data: null,
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     expect(screen.queryByText(/Week \d/)).not.toBeInTheDocument();
   });
@@ -56,7 +84,13 @@ describe("PostCard (PIC-31)", () => {
         games: [{ away: "NE", home: "SEA", spread: -3, kickoffLabel: "Thu 8:20 PM ET" }],
       },
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     expect(screen.getByText("Lines are up — good luck this week!")).toBeInTheDocument();
     expect(screen.getByText("Week 3 Slate")).toBeInTheDocument();
@@ -71,7 +105,13 @@ describe("PostCard (PIC-31)", () => {
       image_url: null,
       block_data: { type: "open_week", weekNumber: 3, games: [] },
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     const cta = screen.getByRole("link", { name: "Make your picks" });
     expect(cta).toHaveAttribute("href", "/picks");
@@ -90,7 +130,13 @@ describe("PostCard (PIC-31)", () => {
         weeklyWinners: ["Jordan P."],
       },
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     expect(screen.getByRole("link", { name: "View my results" })).toHaveAttribute(
       "href",
@@ -113,7 +159,13 @@ describe("PostCard (PIC-31)", () => {
       image_url: null,
       block_data: null,
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(
@@ -132,7 +184,13 @@ describe("PostCard (PIC-31)", () => {
         game: { away: "NYG", home: "LAR", spread: 2.5, kickoffLabel: "Mon 8:15 PM ET" },
       },
     };
-    render(<PostCard post={post} />);
+    render(
+      <PostCard
+        post={post}
+        reaction={{ count: 0, viewerReacted: false }}
+        onToggleReaction={() => {}}
+      />,
+    );
 
     expect(screen.getByText("Tiebreaker: Monday Night Football")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
